@@ -231,7 +231,7 @@ def get_subnet_info(subnet):
     if 'tags' in subnet:
         subnet['tags'] = boto3_tag_list_to_ansible_dict(subnet['tags'])
     else:
-        subnet['tags'] = dict()
+        subnet['tags'] = {}
 
     if 'subnet_id' in subnet:
         subnet['id'] = subnet['subnet_id']
@@ -239,8 +239,7 @@ def get_subnet_info(subnet):
 
     subnet['ipv6_cidr_block'] = ''
     subnet['ipv6_association_id'] = ''
-    ipv6set = subnet.get('ipv6_cidr_block_association_set')
-    if ipv6set:
+    if ipv6set := subnet.get('ipv6_cidr_block_association_set'):
         for item in ipv6set:
             if item.get('ipv6_cidr_block_state', {}).get('state') in ('associated', 'associating'):
                 subnet['ipv6_cidr_block'] = item['ipv6_cidr_block']
@@ -415,10 +414,7 @@ def get_matching_subnet(conn, module, vpc_id, cidr):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Couldn't get matching subnet")
 
-    if subnets:
-        return subnets[0]
-
-    return None
+    return subnets[0] if subnets else None
 
 
 def ensure_subnet_present(conn, module):
@@ -433,18 +429,26 @@ def ensure_subnet_present(conn, module):
             subnet = create_subnet(conn, module, module.params['vpc_id'], module.params['cidr'],
                                    ipv6_cidr=module.params['ipv6_cidr'], az=module.params['az'], start_time=start_time)
         changed = True
-        # Subnet will be None when check_mode is true
-        if subnet is None:
-            return {
-                'changed': changed,
-                'subnet': {}
-            }
+    # Subnet will be None when check_mode is true
+    if subnet is None:
+        return {
+            'changed': changed,
+            'subnet': {}
+        }
     if module.params['wait']:
         handle_waiter(conn, module, 'subnet_exists', {'SubnetIds': [subnet['id']]}, start_time)
 
-    if module.params['ipv6_cidr'] != subnet.get('ipv6_cidr_block'):
-        if ensure_ipv6_cidr_block(conn, module, subnet, module.params['ipv6_cidr'], module.check_mode, start_time):
-            changed = True
+    if module.params['ipv6_cidr'] != subnet.get(
+        'ipv6_cidr_block'
+    ) and ensure_ipv6_cidr_block(
+        conn,
+        module,
+        subnet,
+        module.params['ipv6_cidr'],
+        module.check_mode,
+        start_time,
+    ):
+        changed = True
 
     if module.params['map_public'] != subnet['map_public_ip_on_launch']:
         ensure_map_public(conn, module, subnet, module.params['map_public'], module.check_mode, start_time)
@@ -455,7 +459,10 @@ def ensure_subnet_present(conn, module):
         changed = True
 
     if module.params['tags'] != subnet['tags']:
-        stringified_tags_dict = dict((to_text(k), to_text(v)) for k, v in module.params['tags'].items())
+        stringified_tags_dict = {
+            to_text(k): to_text(v) for k, v in module.params['tags'].items()
+        }
+
         if ensure_tags(conn, module, subnet, stringified_tags_dict, module.params['purge_tags'], start_time):
             changed = True
 
@@ -472,25 +479,23 @@ def ensure_subnet_present(conn, module):
 
 
 def ensure_final_subnet(conn, module, subnet, start_time):
-    for rewait in range(0, 30):
+    for _ in range(30):
         map_public_correct = False
         assign_ipv6_correct = False
 
         if module.params['map_public'] == subnet['map_public_ip_on_launch']:
             map_public_correct = True
+        elif module.params['map_public']:
+            handle_waiter(conn, module, 'subnet_has_map_public', {'SubnetIds': [subnet['id']]}, start_time)
         else:
-            if module.params['map_public']:
-                handle_waiter(conn, module, 'subnet_has_map_public', {'SubnetIds': [subnet['id']]}, start_time)
-            else:
-                handle_waiter(conn, module, 'subnet_no_map_public', {'SubnetIds': [subnet['id']]}, start_time)
+            handle_waiter(conn, module, 'subnet_no_map_public', {'SubnetIds': [subnet['id']]}, start_time)
 
         if module.params['assign_instances_ipv6'] == subnet.get('assign_ipv6_address_on_creation'):
             assign_ipv6_correct = True
+        elif module.params['assign_instances_ipv6']:
+            handle_waiter(conn, module, 'subnet_has_assign_ipv6', {'SubnetIds': [subnet['id']]}, start_time)
         else:
-            if module.params['assign_instances_ipv6']:
-                handle_waiter(conn, module, 'subnet_has_assign_ipv6', {'SubnetIds': [subnet['id']]}, start_time)
-            else:
-                handle_waiter(conn, module, 'subnet_no_assign_ipv6', {'SubnetIds': [subnet['id']]}, start_time)
+            handle_waiter(conn, module, 'subnet_no_assign_ipv6', {'SubnetIds': [subnet['id']]}, start_time)
 
         if map_public_correct and assign_ipv6_correct:
             break

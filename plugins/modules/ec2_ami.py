@@ -379,7 +379,7 @@ from ..module_utils.waiters import get_waiter
 
 
 def get_block_device_mapping(image):
-    bdm_dict = dict()
+    bdm_dict = {}
     if image is not None and image.get('block_device_mappings') is not None:
         bdm = image.get('block_device_mappings')
         for device in bdm:
@@ -461,7 +461,7 @@ def create_image(module, connection):
         if device_mapping:
             block_device_mapping = []
             for device in device_mapping:
-                device = dict((k, v) for k, v in device.items() if v is not None)
+                device = {k: v for k, v in device.items() if v is not None}
                 device['Ebs'] = {}
                 device = rename_item_if_exists(device, 'device_name', 'DeviceName')
                 device = rename_item_if_exists(device, 'virtual_name', 'VirtualName')
@@ -521,8 +521,11 @@ def create_image(module, connection):
         resources_to_tag = [image_id]
         image_info = get_image_by_id(module, connection, image_id)
         if image_info and image_info.get('BlockDeviceMappings'):
-            for mapping in image_info.get('BlockDeviceMappings'):
-                resources_to_tag.append(mapping.get('Ebs').get('SnapshotId'))
+            resources_to_tag.extend(
+                mapping.get('Ebs').get('SnapshotId')
+                for mapping in image_info.get('BlockDeviceMappings')
+            )
+
         try:
             connection.create_tags(aws_retry=True, Resources=resources_to_tag, Tags=ansible_dict_to_boto3_tag_list(tags))
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
@@ -530,7 +533,12 @@ def create_image(module, connection):
 
     if launch_permissions:
         try:
-            params = dict(Attribute='LaunchPermission', ImageId=image_id, LaunchPermission=dict(Add=list()))
+            params = dict(
+                Attribute='LaunchPermission',
+                ImageId=image_id,
+                LaunchPermission=dict(Add=[]),
+            )
+
             for group_name in launch_permissions.get('group_names', []):
                 params['LaunchPermission']['Add'].append(dict(Group=group_name))
             for user_id in launch_permissions.get('user_ids', []):
@@ -538,7 +546,10 @@ def create_image(module, connection):
             if params['LaunchPermission']['Add']:
                 connection.modify_image_attribute(aws_retry=True, **params)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            module.fail_json_aws(e, msg="Error setting launch permissions for image %s" % image_id)
+            module.fail_json_aws(
+                e, msg=f"Error setting launch permissions for image {image_id}"
+            )
+
 
     module.exit_json(msg="AMI creation operation complete.", changed=True,
                      **get_ami_info(get_image_by_id(module, connection, image_id)))
@@ -569,7 +580,11 @@ def deregister_image(module, connection):
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
             module.fail_json_aws(e, msg="Error deregistering image")
     else:
-        module.exit_json(msg="Image %s has already been deregistered." % image_id, changed=False)
+        module.exit_json(
+            msg=f"Image {image_id} has already been deregistered.",
+            changed=False,
+        )
+
 
     image = get_image_by_id(module, connection, image_id)
     wait_timeout = time.time() + wait_timeout
@@ -601,15 +616,28 @@ def update_image(module, connection, image_id):
     launch_permissions = module.params.get('launch_permissions')
     image = get_image_by_id(module, connection, image_id)
     if image is None:
-        module.fail_json(msg="Image %s does not exist" % image_id, changed=False)
+        module.fail_json(msg=f"Image {image_id} does not exist", changed=False)
     changed = False
 
     if launch_permissions is not None:
         current_permissions = image['LaunchPermissions']
 
-        current_users = set(permission['UserId'] for permission in current_permissions if 'UserId' in permission)
-        desired_users = set(str(user_id) for user_id in launch_permissions.get('user_ids', []))
-        current_groups = set(permission['Group'] for permission in current_permissions if 'Group' in permission)
+        current_users = {
+            permission['UserId']
+            for permission in current_permissions
+            if 'UserId' in permission
+        }
+
+        desired_users = {
+            str(user_id) for user_id in launch_permissions.get('user_ids', [])
+        }
+
+        current_groups = {
+            permission['Group']
+            for permission in current_permissions
+            if 'Group' in permission
+        }
+
         desired_groups = set(launch_permissions.get('group_names', []))
 
         to_add_users = desired_users - current_users
@@ -627,7 +655,11 @@ def update_image(module, connection, image_id):
                                                   LaunchPermission=dict(Add=to_add, Remove=to_remove))
                 changed = True
             except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-                module.fail_json_aws(e, msg="Error updating launch permissions of image %s" % image_id)
+                module.fail_json_aws(
+                    e,
+                    msg=f"Error updating launch permissions of image {image_id}",
+                )
+
 
     desired_tags = module.params.get('tags')
     if desired_tags is not None:
@@ -654,7 +686,7 @@ def update_image(module, connection, image_id):
             connection.modify_image_attribute(aws_retry=True, Attribute='Description ', ImageId=image_id, Description=dict(Value=description))
             changed = True
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            module.fail_json_aws(e, msg="Error setting description for image %s" % image_id)
+            module.fail_json_aws(e, msg=f"Error setting description for image {image_id}")
 
     if changed:
         module.exit_json(msg="AMI updated.", changed=True,
@@ -669,7 +701,7 @@ def get_image_by_id(module, connection, image_id):
         try:
             images_response = connection.describe_images(aws_retry=True, ImageIds=[image_id])
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            module.fail_json_aws(e, msg="Error retrieving image %s" % image_id)
+            module.fail_json_aws(e, msg=f"Error retrieving image {image_id}")
         images = images_response.get('Images')
         no_images = len(images)
         if no_images == 0:
@@ -684,9 +716,16 @@ def get_image_by_id(module, connection, image_id):
             except is_boto3_error_code('InvalidAMIID.Unavailable'):
                 pass
             except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-                module.fail_json_aws(e, msg="Error retrieving image attributes for image %s" % image_id)
+                module.fail_json_aws(
+                    e,
+                    msg=f"Error retrieving image attributes for image {image_id}",
+                )
+
             return result
-        module.fail_json(msg="Invalid number of instances (%s) found for image_id: %s." % (str(len(images)), image_id))
+        module.fail_json(
+            msg=f"Invalid number of instances ({len(images)}) found for image_id: {image_id}."
+        )
+
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Error retrieving image by image_id")
 
@@ -721,29 +760,35 @@ def main():
         volume_size=dict(type='int', aliases=['size']),
     )
     argument_spec = dict(
-        instance_id=dict(),
-        image_id=dict(),
+        instance_id={},
+        image_id={},
         architecture=dict(default='x86_64'),
-        kernel_id=dict(),
+        kernel_id={},
         virtualization_type=dict(default='hvm'),
-        root_device_name=dict(),
+        root_device_name={},
         delete_snapshot=dict(default=False, type='bool'),
-        name=dict(),
+        name={},
         wait=dict(type='bool', default=False),
         wait_timeout=dict(default=1200, type='int'),
         description=dict(default=''),
         no_reboot=dict(default=False, type='bool'),
         state=dict(default='present', choices=['present', 'absent']),
-        device_mapping=dict(type='list', elements='dict', options=mapping_options),
+        device_mapping=dict(
+            type='list', elements='dict', options=mapping_options
+        ),
         tags=dict(type='dict'),
         launch_permissions=dict(type='dict'),
-        image_location=dict(),
+        image_location={},
         enhanced_networking=dict(type='bool'),
-        billing_products=dict(type='list', elements='str',),
-        ramdisk_id=dict(),
-        sriov_net_support=dict(),
-        purge_tags=dict(type='bool', default=False)
+        billing_products=dict(
+            type='list',
+            elements='str',
+        ),
+        ramdisk_id={},
+        sriov_net_support={},
+        purge_tags=dict(type='bool', default=False),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,

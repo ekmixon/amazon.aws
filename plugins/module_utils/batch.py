@@ -55,7 +55,7 @@ class AWSConnection(object):
 
         self.region, self.endpoint, aws_connect_kwargs = get_aws_connection_info(ansible_obj, boto3=boto3)
 
-        self.resource_client = dict()
+        self.resource_client = {}
         if not resources:
             resources = ['batch']
 
@@ -102,5 +102,10 @@ def set_api_params(module, module_params):
     :param module_params:
     :return:
     """
-    api_params = dict((k, v) for k, v in dict(module.params).items() if k in module_params and v is not None)
+    api_params = {
+        k: v
+        for k, v in dict(module.params).items()
+        if k in module_params and v is not None
+    }
+
     return snake_dict_to_camel_dict(api_params)

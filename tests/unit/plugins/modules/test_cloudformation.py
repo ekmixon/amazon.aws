@@ -84,8 +84,7 @@ class FakeModule(object):
 def _create_wrapped_client(placeboify):
     connection = placeboify.client('cloudformation')
     retry_decorator = aws_ec2.AWSRetry.jittered_backoff()
-    wrapped_conn = aws_core._RetryingBotoClientWrapper(connection, retry_decorator)
-    return wrapped_conn
+    return aws_core._RetryingBotoClientWrapper(connection, retry_decorator)
 
 
 def test_invalid_template_json(placeboify):

@@ -103,9 +103,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 try:
                     connection = boto3.session.Session(profile_name=self.boto_profile).client('rds', region)
                 except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
-                    raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
+                    raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
             else:
-                raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
+                raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
         return connection
 
     def _boto3_assume_role(self, credentials, region):
@@ -125,7 +125,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 aws_session_token=sts_session['Credentials']['SessionToken']
             )
         except botocore.exceptions.ClientError as e:
-            raise AnsibleError("Unable to assume IAM role: %s" % to_native(e))
+            raise AnsibleError(f"Unable to assume IAM role: {to_native(e)}")
 
     def _boto3_conn(self, regions):
         '''
@@ -143,13 +143,12 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                     assumed_credentials = credentials
                 connection = boto3.session.Session(profile_name=self.boto_profile).client('rds', region, **assumed_credentials)
             except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
-                if self.boto_profile:
-                    try:
-                        connection = boto3.session.Session(profile_name=self.boto_profile).client('rds', region)
-                    except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
-                        raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
-                else:
-                    raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
+                if not self.boto_profile:
+                    raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
+                try:
+                    connection = boto3.session.Session(profile_name=self.boto_profile).client('rds', region)
+                except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
+                    raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
             yield connection, region
 
     def _get_hosts_by_region(self, connection, filters, strict):
@@ -239,12 +238,11 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         for group in source_data:
             if group == 'all':
                 continue
-            else:
-                self.inventory.add_group(group)
-                hosts = source_data[group].get('hosts', [])
-                for host in hosts:
-                    self._populate_host_vars([host], hostvars.get(host, {}), group)
-                self.inventory.add_child('all', group)
+            self.inventory.add_group(group)
+            hosts = source_data[group].get('hosts', [])
+            for host in hosts:
+                self._populate_host_vars([host], hostvars.get(host, {}), group)
+            self.inventory.add_child('all', group)
 
     def _get_hostname(self, host):
         if host.get('DBInstanceIdentifier'):
@@ -253,9 +251,8 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             return host['DBClusterIdentifier']
 
     def _format_inventory(self, hosts):
-        results = {'_meta': {'hostvars': {}}}
         group = 'aws_rds'
-        results[group] = {'hosts': []}
+        results = {'_meta': {'hostvars': {}}, group: {'hosts': []}}
         for host in hosts:
             hostname = self._get_hostname(host)
             results[group]['hosts'].append(hostname)
@@ -326,10 +323,10 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             :param path: the path to the inventory config file
             :return the contents of the config file
         '''
-        if super(InventoryModule, self).verify_file(path):
-            if path.endswith(('aws_rds.yml', 'aws_rds.yaml')):
-                return True
-        return False
+        return bool(
+            super(InventoryModule, self).verify_file(path)
+            and path.endswith(('aws_rds.yml', 'aws_rds.yaml'))
+        )
 
     def parse(self, inventory, loader, path, cache=True):
         super(InventoryModule, self).parse(inventory, loader, path)

@@ -240,22 +240,28 @@ def list_eni(connection, module):
 def get_eni_info(interface):
 
     # Private addresses
-    private_addresses = []
-    for ip in interface.private_ip_addresses:
-        private_addresses.append({'private_ip_address': ip.private_ip_address, 'primary_address': ip.primary})
+    private_addresses = [
+        {
+            'private_ip_address': ip.private_ip_address,
+            'primary_address': ip.primary,
+        }
+        for ip in interface.private_ip_addresses
+    ]
 
-    interface_info = {'id': interface.id,
-                      'subnet_id': interface.subnet_id,
-                      'vpc_id': interface.vpc_id,
-                      'description': interface.description,
-                      'owner_id': interface.owner_id,
-                      'status': interface.status,
-                      'mac_address': interface.mac_address,
-                      'private_ip_address': interface.private_ip_address,
-                      'source_dest_check': interface.source_dest_check,
-                      'groups': dict((group.id, group.name) for group in interface.groups),
-                      'private_ip_addresses': private_addresses
-                      }
+    interface_info = {
+        'id': interface.id,
+        'subnet_id': interface.subnet_id,
+        'vpc_id': interface.vpc_id,
+        'description': interface.description,
+        'owner_id': interface.owner_id,
+        'status': interface.status,
+        'mac_address': interface.mac_address,
+        'private_ip_address': interface.private_ip_address,
+        'source_dest_check': interface.source_dest_check,
+        'groups': {group.id: group.name for group in interface.groups},
+        'private_ip_addresses': private_addresses,
+    }
+
 
     if hasattr(interface, 'publicDnsName'):
         interface_info['association'] = {'public_ip_address': interface.publicIp,

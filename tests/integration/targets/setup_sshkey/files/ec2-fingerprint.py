@@ -8,6 +8,7 @@ ssh-keygen -f id_rsa.pub -e -m PKCS8 | openssl pkey -pubin -outform DER | openss
 (but without needing the OpenSSL CLI)
 """
 
+
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
 
@@ -15,11 +16,7 @@ import hashlib
 import sys
 from Crypto.PublicKey import RSA
 
-if len(sys.argv) == 0:
-    ssh_public_key = "id_rsa.pub"
-else:
-    ssh_public_key = sys.argv[1]
-
+ssh_public_key = "id_rsa.pub" if len(sys.argv) == 0 else sys.argv[1]
 with open(ssh_public_key, 'r') as key_fh:
     data = key_fh.read()
 

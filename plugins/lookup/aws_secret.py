@@ -194,14 +194,12 @@ class LookupModule(LookupBase):
         if not isinstance(denied, string_types) or denied not in ['error', 'warn', 'skip']:
             raise AnsibleError('"on_denied" must be a string and one of "error", "warn" or "skip", not %s' % denied)
 
-        credentials = {}
-        if aws_profile:
-            credentials['aws_profile'] = aws_profile
-        else:
-            credentials['aws_profile'] = boto_profile
-        credentials['aws_secret_access_key'] = aws_secret_key
-        credentials['aws_access_key_id'] = aws_access_key
-        credentials['aws_session_token'] = aws_security_token
+        credentials = {
+            'aws_profile': aws_profile or boto_profile,
+            'aws_secret_access_key': aws_secret_key,
+            'aws_access_key_id': aws_access_key,
+            'aws_session_token': aws_security_token,
+        }
 
         # fallback to IAM role credentials
         if not credentials['aws_profile'] and not (
@@ -222,31 +220,37 @@ class LookupModule(LookupBase):
 
                     if 'SecretList' in response:
                         for secret in response['SecretList']:
-                            secrets.update({secret['Name']: self.get_secret_value(secret['Name'], client,
-                                                                                  on_missing=missing,
-                                                                                  on_denied=denied)})
+                            secrets[secret['Name']] = self.get_secret_value(
+                                secret['Name'],
+                                client,
+                                on_missing=missing,
+                                on_denied=denied,
+                            )
+
                 except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                    raise AnsibleError("Failed to retrieve secret: %s" % to_native(e))
+                    raise AnsibleError(f"Failed to retrieve secret: {to_native(e)}")
             secrets = [secrets]
         else:
             secrets = []
             for term in terms:
-                value = self.get_secret_value(term, client,
-                                              version_stage=version_stage, version_id=version_id,
-                                              on_missing=missing, on_denied=denied, on_deleted=deleted,
-                                              nested=nested)
-                if value:
+                if value := self.get_secret_value(
+                    term,
+                    client,
+                    version_stage=version_stage,
+                    version_id=version_id,
+                    on_missing=missing,
+                    on_denied=denied,
+                    on_deleted=deleted,
+                    nested=nested,
+                ):
                     secrets.append(value)
             if join:
-                joined_secret = []
-                joined_secret.append(''.join(secrets))
-                return joined_secret
+                return [''.join(secrets)]
 
         return secrets
 
     def get_secret_value(self, term, client, version_stage=None, version_id=None, on_missing=None, on_denied=None, on_deleted=None, nested=False):
-        params = {}
-        params['SecretId'] = term
+        params = {'SecretId': term}
         if version_id:
             params['VersionId'] = version_id
         if version_stage:
@@ -262,35 +266,37 @@ class LookupModule(LookupBase):
             if 'SecretBinary' in response:
                 return response['SecretBinary']
             if 'SecretString' in response:
-                if nested:
-                    secrets = []
-                    query = term.split('.')[1:]
-                    secret_string = json.loads(response['SecretString'])
-                    ret_val = secret_string
-                    for key in query:
-                        if key in ret_val:
-                            ret_val = ret_val[key]
-                        else:
-                            raise AnsibleError("Successfully retrieved secret but there exists no key {0} in the secret".format(key))
-                    return str(ret_val)
-                else:
+                if not nested:
                     return response['SecretString']
+                secrets = []
+                query = term.split('.')[1:]
+                secret_string = json.loads(response['SecretString'])
+                ret_val = secret_string
+                for key in query:
+                    if key in ret_val:
+                        ret_val = ret_val[key]
+                    else:
+                        raise AnsibleError("Successfully retrieved secret but there exists no key {0} in the secret".format(key))
+                return str(ret_val)
         except is_boto3_error_message('marked for deletion'):
             if on_deleted == 'error':
-                raise AnsibleError("Failed to find secret %s (marked for deletion)" % term)
+                raise AnsibleError(f"Failed to find secret {term} (marked for deletion)")
             elif on_deleted == 'warn':
-                self._display.warning('Skipping, did not find secret (marked for deletion) %s' % term)
+                self._display.warning(
+                    f'Skipping, did not find secret (marked for deletion) {term}'
+                )
+
         except is_boto3_error_code('ResourceNotFoundException'):  # pylint: disable=duplicate-except
             if on_missing == 'error':
-                raise AnsibleError("Failed to find secret %s (ResourceNotFound)" % term)
+                raise AnsibleError(f"Failed to find secret {term} (ResourceNotFound)")
             elif on_missing == 'warn':
-                self._display.warning('Skipping, did not find secret %s' % term)
+                self._display.warning(f'Skipping, did not find secret {term}')
         except is_boto3_error_code('AccessDeniedException'):  # pylint: disable=duplicate-except
             if on_denied == 'error':
-                raise AnsibleError("Failed to access secret %s (AccessDenied)" % term)
+                raise AnsibleError(f"Failed to access secret {term} (AccessDenied)")
             elif on_denied == 'warn':
-                self._display.warning('Skipping, access denied for secret %s' % term)
+                self._display.warning(f'Skipping, access denied for secret {term}')
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:  # pylint: disable=duplicate-except
-            raise AnsibleError("Failed to retrieve secret: %s" % to_native(e))
+            raise AnsibleError(f"Failed to retrieve secret: {to_native(e)}")
 
         return None

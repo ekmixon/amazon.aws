@@ -23,13 +23,20 @@ from .elb_utils import get_elb_listener
 
 # ForwardConfig may be optional if we've got a single TargetGroupArn entry
 def _prune_ForwardConfig(action):
-    if "ForwardConfig" in action and action['Type'] == 'forward':
-        if action["ForwardConfig"] == {
-                'TargetGroupStickinessConfig': {'Enabled': False},
-                'TargetGroups': [{"TargetGroupArn": action["TargetGroupArn"], "Weight": 1}]}:
-            newAction = action.copy()
-            del(newAction["ForwardConfig"])
-            return newAction
+    if (
+        "ForwardConfig" in action
+        and action['Type'] == 'forward'
+        and action["ForwardConfig"]
+        == {
+            'TargetGroupStickinessConfig': {'Enabled': False},
+            'TargetGroups': [
+                {"TargetGroupArn": action["TargetGroupArn"], "Weight": 1}
+            ],
+        }
+    ):
+        newAction = action.copy()
+        del(newAction["ForwardConfig"])
+        return newAction
     return action
 
 
@@ -107,7 +114,7 @@ class ElasticLoadBalancerV2(object):
             self.module.fail_json_aws(e)
 
         # Replace '.' with '_' in attribute key names to make it more Ansibley
-        return dict((k.replace('.', '_'), v) for k, v in elb_attributes.items())
+        return {k.replace('.', '_'): v for k, v in elb_attributes.items()}
 
     def get_elb_ip_address_type(self):
         """
@@ -199,9 +206,7 @@ class ElasticLoadBalancerV2(object):
         # Check if we're dealing with subnets or subnet_mappings
         if self.subnets is not None:
             # Convert subnets to subnet_mappings format for comparison
-            for subnet in self.subnets:
-                subnet_mappings.append({'SubnetId': subnet})
-
+            subnet_mappings.extend({'SubnetId': subnet} for subnet in self.subnets)
         if self.subnet_mappings is not None:
             # Use this directly since we're comparing as a mapping
             subnet_mappings = self.subnet_mappings
@@ -217,7 +222,9 @@ class ElasticLoadBalancerV2(object):
 
             subnet_mapping_id_list.append(this_mapping)
 
-        return set(frozenset(mapping.items()) for mapping in subnet_mapping_id_list) == set(frozenset(mapping.items()) for mapping in subnet_mappings)
+        return {
+            frozenset(mapping.items()) for mapping in subnet_mapping_id_list
+        } == {frozenset(mapping.items()) for mapping in subnet_mappings}
 
     def modify_subnets(self):
         """
@@ -300,10 +307,7 @@ class ApplicationLoadBalancer(ElasticLoadBalancerV2):
         """
 
         # Required parameters
-        params = dict()
-        params['Name'] = self.name
-        params['Type'] = self.type
-
+        params = {'Name': self.name, 'Type': self.type}
         # Other parameters
         if self.subnets is not None:
             params['Subnets'] = self.subnets
@@ -366,10 +370,7 @@ class ApplicationLoadBalancer(ElasticLoadBalancerV2):
         :return: bool True if they match otherwise False
         """
 
-        if set(self.elb['SecurityGroups']) != set(self.security_groups):
-            return False
-        else:
-            return True
+        return set(self.elb['SecurityGroups']) == set(self.security_groups)
 
     def modify_security_groups(self):
         """
@@ -414,10 +415,7 @@ class NetworkLoadBalancer(ElasticLoadBalancerV2):
         """
 
         # Required parameters
-        params = dict()
-        params['Name'] = self.name
-        params['Type'] = self.type
-
+        params = {'Name': self.name, 'Type': self.type}
         # Other parameters
         if self.subnets is not None:
             params['Subnets'] = self.subnets
@@ -483,7 +481,15 @@ class ELBListeners(object):
         listeners = module.params.get("listeners")
         if listeners is not None:
             # Remove suboption argspec defaults of None from each listener
-            listeners = [dict((x, listener_dict[x]) for x in listener_dict if listener_dict[x] is not None) for listener_dict in listeners]
+            listeners = [
+                {
+                    x: listener_dict[x]
+                    for x in listener_dict
+                    if listener_dict[x] is not None
+                }
+                for listener_dict in listeners
+            ]
+
         self.listeners = self._ensure_listeners_default_action_has_arn(listeners)
         self.current_listeners = self._get_elb_listeners()
         self.purge_listeners = module.params.get("purge_listeners")
@@ -555,8 +561,9 @@ class ELBListeners(object):
                     current_listener_passed_to_module = True
                     # Remove what we match so that what is left can be marked as 'to be added'
                     listeners_to_add.remove(new_listener)
-                    modified_listener = self._compare_listener(current_listener, new_listener)
-                    if modified_listener:
+                    if modified_listener := self._compare_listener(
+                        current_listener, new_listener
+                    ):
                         modified_listener['Port'] = current_listener['Port']
                         modified_listener['ListenerArn'] = current_listener['ListenerArn']
                         listeners_to_modify.append(modified_listener)
@@ -593,13 +600,11 @@ class ELBListeners(object):
             if current_listener['SslPolicy'] != new_listener['SslPolicy']:
                 modified_listener['SslPolicy'] = new_listener['SslPolicy']
             if current_listener['Certificates'][0]['CertificateArn'] != new_listener['Certificates'][0]['CertificateArn']:
-                modified_listener['Certificates'] = []
-                modified_listener['Certificates'].append({})
+                modified_listener['Certificates'] = [{}]
                 modified_listener['Certificates'][0]['CertificateArn'] = new_listener['Certificates'][0]['CertificateArn']
         elif current_listener['Protocol'] != 'HTTPS' and new_listener['Protocol'] == 'HTTPS':
             modified_listener['SslPolicy'] = new_listener['SslPolicy']
-            modified_listener['Certificates'] = []
-            modified_listener['Certificates'].append({})
+            modified_listener['Certificates'] = [{}]
             modified_listener['Certificates'][0]['CertificateArn'] = new_listener['Certificates'][0]['CertificateArn']
 
         # Default action
@@ -627,10 +632,7 @@ class ELBListeners(object):
         else:
             modified_listener['DefaultActions'] = new_listener['DefaultActions']
 
-        if modified_listener:
-            return modified_listener
-        else:
-            return None
+        return modified_listener or None
 
 
 class ELBListener(object):
@@ -835,13 +837,11 @@ class ELBListenerRules(object):
         else:
             modified_rule['Actions'] = new_rule['Actions']
 
-        # Conditions
-        modified_conditions = []
-        for condition in new_rule['Conditions']:
-            if not self._compare_condition(current_rule['Conditions'], condition):
-                modified_conditions.append(condition)
-
-        if modified_conditions:
+        if modified_conditions := [
+            condition
+            for condition in new_rule['Conditions']
+            if not self._compare_condition(current_rule['Conditions'], condition)
+        ]:
             modified_rule['Conditions'] = modified_conditions
 
         return modified_rule
@@ -863,8 +863,7 @@ class ELBListenerRules(object):
                     current_rule_passed_to_module = True
                     # Remove what we match so that what is left can be marked as 'to be added'
                     rules_to_add.remove(new_rule)
-                    modified_rule = self._compare_rule(current_rule, new_rule)
-                    if modified_rule:
+                    if modified_rule := self._compare_rule(current_rule, new_rule):
                         modified_rule['Priority'] = int(current_rule['Priority'])
                         modified_rule['RuleArn'] = current_rule['RuleArn']
                         modified_rule['Actions'] = new_rule['Actions']

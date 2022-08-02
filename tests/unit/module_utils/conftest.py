@@ -57,9 +57,8 @@ def am(stdin, request):
     sys.argv = ['ansible_unittest']
 
     argspec = {}
-    if hasattr(request, 'param'):
-        if isinstance(request.param, dict):
-            argspec = request.param
+    if hasattr(request, 'param') and isinstance(request.param, dict):
+        argspec = request.param
 
     am = ansible.module_utils.basic.AnsibleModule(
         argument_spec=argspec,

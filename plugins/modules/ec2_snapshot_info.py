@@ -239,26 +239,25 @@ def list_ec2_snapshots(connection, module):
             **optional_param)
     except is_boto3_error_code('InvalidSnapshot.NotFound') as e:
         if len(snapshot_ids) > 1:
-            module.warn("Some of your snapshots may exist, but %s" % str(e))
+            module.warn(f"Some of your snapshots may exist, but {str(e)}")
         snapshots = {'Snapshots': []}
     except ClientError as e:  # pylint: disable=duplicate-except
         module.fail_json_aws(e, msg='Failed to describe snapshots')
 
-    result = {}
     # Turn the boto3 result in to ansible_friendly_snaked_names
-    snaked_snapshots = []
-    for snapshot in snapshots['Snapshots']:
-        snaked_snapshots.append(camel_dict_to_snake_dict(snapshot))
+    snaked_snapshots = [
+        camel_dict_to_snake_dict(snapshot)
+        for snapshot in snapshots['Snapshots']
+    ]
 
     # Turn the boto3 result in to ansible friendly tag dictionary
     for snapshot in snaked_snapshots:
         if 'tags' in snapshot:
             snapshot['tags'] = boto3_tag_list_to_ansible_dict(snapshot['tags'], 'key', 'value')
 
-    result['snapshots'] = snaked_snapshots
-
+    result = {'snapshots': snaked_snapshots}
     if snapshots.get('NextToken'):
-        result.update(camel_dict_to_snake_dict({'NextTokenId': snapshots.get('NextToken')}))
+        result |= camel_dict_to_snake_dict({'NextTokenId': snapshots.get('NextToken')})
 
     module.exit_json(**result)
 

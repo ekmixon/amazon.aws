@@ -151,10 +151,13 @@ from ..module_utils.ec2 import normalize_ec2_vpc_dhcp_config
 
 
 def get_dhcp_options_info(dhcp_option):
-    dhcp_option_info = {'DhcpOptionsId': dhcp_option['DhcpOptionsId'],
-                        'DhcpConfigurations': dhcp_option['DhcpConfigurations'],
-                        'Tags': boto3_tag_list_to_ansible_dict(dhcp_option.get('Tags', [{'Value': '', 'Key': 'Name'}]))}
-    return dhcp_option_info
+    return {
+        'DhcpOptionsId': dhcp_option['DhcpOptionsId'],
+        'DhcpConfigurations': dhcp_option['DhcpConfigurations'],
+        'Tags': boto3_tag_list_to_ansible_dict(
+            dhcp_option.get('Tags', [{'Value': '', 'Key': 'Name'}])
+        ),
+    }
 
 
 def list_dhcp_options(client, module):

@@ -332,19 +332,15 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
 
         temp_obj = []
 
-        if isinstance(obj, list) or isinstance(obj, tuple):
+        if isinstance(obj, (list, tuple)):
             for each in obj:
-                value = self._compile_values(each, attr)
-                if value:
+                if value := self._compile_values(each, attr):
                     temp_obj.append(value)
         else:
             temp_obj = obj.get(attr)
 
         has_indexes = any([isinstance(temp_obj, list), isinstance(temp_obj, tuple)])
-        if has_indexes and len(temp_obj) == 1:
-            return temp_obj[0]
-
-        return temp_obj
+        return temp_obj[0] if has_indexes and len(temp_obj) == 1 else temp_obj
 
     def _get_boto_attr_chain(self, filter_name, instance):
         '''
@@ -369,14 +365,15 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         '''
             :return A dictionary of boto client credentials
         '''
-        boto_params = {}
-        for credential in (('aws_access_key_id', self.aws_access_key_id),
-                           ('aws_secret_access_key', self.aws_secret_access_key),
-                           ('aws_session_token', self.aws_security_token)):
-            if credential[1]:
-                boto_params[credential[0]] = credential[1]
-
-        return boto_params
+        return {
+            credential[0]: credential[1]
+            for credential in (
+                ('aws_access_key_id', self.aws_access_key_id),
+                ('aws_secret_access_key', self.aws_secret_access_key),
+                ('aws_session_token', self.aws_security_token),
+            )
+            if credential[1]
+        }
 
     def _get_connection(self, credentials, region='us-east-1'):
         try:
@@ -386,9 +383,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 try:
                     connection = boto3.session.Session(profile_name=self.boto_profile).client('ec2', region)
                 except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
-                    raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
+                    raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
             else:
-                raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
+                raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
         return connection
 
     def _boto3_assume_role(self, credentials, region):
@@ -409,7 +406,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 aws_session_token=sts_session['Credentials']['SessionToken']
             )
         except botocore.exceptions.ClientError as e:
-            raise AnsibleError("Unable to assume IAM role: %s" % to_native(e))
+            raise AnsibleError(f"Unable to assume IAM role: {to_native(e)}")
 
     def _boto3_conn(self, regions):
         '''
@@ -449,13 +446,12 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                     assumed_credentials = credentials
                 connection = boto3.session.Session(profile_name=self.boto_profile).client('ec2', region, **assumed_credentials)
             except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
-                if self.boto_profile:
-                    try:
-                        connection = boto3.session.Session(profile_name=self.boto_profile).client('ec2', region)
-                    except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
-                        raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
-                else:
-                    raise AnsibleError("Insufficient credentials found: %s" % to_native(e))
+                if not self.boto_profile:
+                    raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
+                try:
+                    connection = boto3.session.Session(profile_name=self.boto_profile).client('ec2', region)
+                except (botocore.exceptions.ProfileNotFound, botocore.exceptions.PartialCredentialsError) as e:
+                    raise AnsibleError(f"Insufficient credentials found: {to_native(e)}")
             yield connection, region
 
     def _get_instances_by_region(self, regions, filters, strict_permissions):
@@ -470,7 +466,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         for connection, region in self._boto3_conn(regions):
             try:
                 # By default find non-terminated/terminating instances
-                if not any(f['Name'] == 'instance-state-name' for f in filters):
+                if all(f['Name'] != 'instance-state-name' for f in filters):
                     filters.append({'Name': 'instance-state-name', 'Values': ['running', 'pending', 'stopping', 'stopped']})
                 paginator = connection.get_paginator('describe_instances')
                 reservations = paginator.paginate(Filters=filters).build_full_result().get('Reservations')
@@ -486,9 +482,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 if e.response['ResponseMetadata']['HTTPStatusCode'] == 403 and not strict_permissions:
                     instances = []
                 else:
-                    raise AnsibleError("Failed to describe instances: %s" % to_native(e))
+                    raise AnsibleError(f"Failed to describe instances: {to_native(e)}")
             except botocore.exceptions.BotoCoreError as e:
-                raise AnsibleError("Failed to describe instances: %s" % to_native(e))
+                raise AnsibleError(f"Failed to describe instances: {to_native(e)}")
 
             all_instances.extend(instances)
 
@@ -507,21 +503,24 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             kwargs = {'InstanceIds': [instance_id]}
             host_vars['Events'] = connection.describe_instance_status(**kwargs)['InstanceStatuses'][0].get('Events', '')
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-            if not self.get_option('strict_permissions'):
-                pass
-            else:
-                raise AnsibleError("Failed to describe instance status: %s" % to_native(e))
+            if self.get_option('strict_permissions'):
+                raise AnsibleError(f"Failed to describe instance status: {to_native(e)}")
         if spot_instance:
             try:
                 kwargs = {'SpotInstanceRequestIds': [spot_instance]}
-                host_vars['Persistent'] = bool(
-                    connection.describe_spot_instance_requests(**kwargs)['SpotInstanceRequests'][0].get('Type') == 'persistent'
+                host_vars['Persistent'] = (
+                    connection.describe_spot_instance_requests(**kwargs)[
+                        'SpotInstanceRequests'
+                    ][0].get('Type')
+                    == 'persistent'
                 )
+
             except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                if not self.get_option('strict_permissions'):
-                    pass
-                else:
-                    raise AnsibleError("Failed to describe spot instance requests: %s" % to_native(e))
+                if self.get_option('strict_permissions'):
+                    raise AnsibleError(
+                        f"Failed to describe spot instance requests: {to_native(e)}"
+                    )
+
         return host_vars
 
     def _get_tag_hostname(self, preference, instance):
@@ -535,11 +534,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             if '=' in v:
                 tag_name, tag_value = v.split('=')
                 if tags.get(tag_name) == tag_value:
-                    return to_text(tag_name) + "_" + to_text(tag_value)
-            else:
-                tag_value = tags.get(v)
-                if tag_value:
-                    return to_text(tag_value)
+                    return f"{to_text(tag_name)}_{to_text(tag_value)}"
+            elif tag_value := tags.get(v):
+                return to_text(tag_value)
         return None
 
     def _get_hostname(self, instance, hostnames):
@@ -584,11 +581,15 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         instances = []
         ids_to_ignore = []
         for filter in exclude_filters:
-            for i in self._get_instances_by_region(
+            ids_to_ignore.extend(
+                i['InstanceId']
+                for i in self._get_instances_by_region(
                     regions,
                     ansible_dict_to_boto3_filter_list(filter),
-                    strict_permissions):
-                ids_to_ignore.append(i['InstanceId'])
+                    strict_permissions,
+                )
+            )
+
         for filter in include_filters:
             for i in self._get_instances_by_region(
                     regions,
@@ -622,7 +623,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
 
             if self.get_option('use_contrib_script_compatible_ec2_tag_keys'):
                 for k, v in host['tags'].items():
-                    host["ec2_tag_%s" % k] = v
+                    host[f"ec2_tag_{k}"] = v
 
             # Allow easier grouping by region
             host['placement']['region'] = host['placement']['availability_zone'][:-1]
@@ -652,13 +653,21 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         '''
 
         t = Templar(loader=loader)
-        credentials = {}
+        credentials = {
+            credential_type: t.template(
+                variable=self.get_option(credential_type), disable_lookups=False
+            )
+            if t.is_template(self.get_option(credential_type))
+            else self.get_option(credential_type)
+            for credential_type in [
+                'aws_profile',
+                'aws_access_key',
+                'aws_secret_key',
+                'aws_security_token',
+                'iam_role_arn',
+            ]
+        }
 
-        for credential_type in ['aws_profile', 'aws_access_key', 'aws_secret_key', 'aws_security_token', 'iam_role_arn']:
-            if t.is_template(self.get_option(credential_type)):
-                credentials[credential_type] = t.template(variable=self.get_option(credential_type), disable_lookups=False)
-            else:
-                credentials[credential_type] = self.get_option(credential_type)
 
         self.boto_profile = credentials['aws_profile']
         self.aws_access_key_id = credentials['aws_access_key']
@@ -687,9 +696,10 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             :param path: the path to the inventory config file
             :return the contents of the config file
         '''
-        if super(InventoryModule, self).verify_file(path):
-            if path.endswith(('aws_ec2.yml', 'aws_ec2.yaml')):
-                return True
+        if super(InventoryModule, self).verify_file(path) and path.endswith(
+            ('aws_ec2.yml', 'aws_ec2.yaml')
+        ):
+            return True
         self.display.debug("aws_ec2 inventory filename must end with 'aws_ec2.yml' or 'aws_ec2.yaml'")
         return False
 

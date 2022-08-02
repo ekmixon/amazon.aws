@@ -60,8 +60,8 @@ def get_aws_account_info(module):
                     e,
                     msg="Failed to get AWS account information, Try allowing sts:GetCallerIdentity or iam:GetUser permissions."
                 )
-            account_id = m.group(4)
-            partition = m.group(1)
+            account_id = m[4]
+            partition = m[1]
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
             module.fail_json_aws(
                 e,

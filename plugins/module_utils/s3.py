@@ -26,64 +26,62 @@ def calculate_etag(module, filename, etag, s3, bucket, obj, version=None):
     if not HAS_MD5:
         return None
 
-    if '-' in etag:
-        # Multi-part ETag; a hash of the hashes of each part.
-        parts = int(etag[1:-1].split('-')[1])
-        digests = []
-
-        s3_kwargs = dict(
-            Bucket=bucket,
-            Key=obj,
-        )
-        if version:
-            s3_kwargs['VersionId'] = version
-
-        with open(filename, 'rb') as f:
-            for part_num in range(1, parts + 1):
-                s3_kwargs['PartNumber'] = part_num
-                try:
-                    head = s3.head_object(**s3_kwargs)
-                except (BotoCoreError, ClientError) as e:
-                    module.fail_json_aws(e, msg="Failed to get head object")
-                digests.append(md5(f.read(int(head['ContentLength']))))
-
-        digest_squared = md5(b''.join(m.digest() for m in digests))
-        return '"{0}-{1}"'.format(digest_squared.hexdigest(), len(digests))
-    else:  # Compute the MD5 sum normally
+    if '-' not in etag:
         return '"{0}"'.format(module.md5(filename))
+    # Multi-part ETag; a hash of the hashes of each part.
+    parts = int(etag[1:-1].split('-')[1])
+    digests = []
 
+    s3_kwargs = dict(
+        Bucket=bucket,
+        Key=obj,
+    )
+    if version:
+        s3_kwargs['VersionId'] = version
 
-def calculate_etag_content(module, content, etag, s3, bucket, obj, version=None):
-    if not HAS_MD5:
-        return None
-
-    if '-' in etag:
-        # Multi-part ETag; a hash of the hashes of each part.
-        parts = int(etag[1:-1].split('-')[1])
-        digests = []
-        offset = 0
-
-        s3_kwargs = dict(
-            Bucket=bucket,
-            Key=obj,
-        )
-        if version:
-            s3_kwargs['VersionId'] = version
-
+    with open(filename, 'rb') as f:
         for part_num in range(1, parts + 1):
             s3_kwargs['PartNumber'] = part_num
             try:
                 head = s3.head_object(**s3_kwargs)
             except (BotoCoreError, ClientError) as e:
                 module.fail_json_aws(e, msg="Failed to get head object")
-            length = int(head['ContentLength'])
-            digests.append(md5(content[offset:offset + length]))
-            offset += length
+            digests.append(md5(f.read(int(head['ContentLength']))))
 
-        digest_squared = md5(b''.join(m.digest() for m in digests))
-        return '"{0}-{1}"'.format(digest_squared.hexdigest(), len(digests))
-    else:  # Compute the MD5 sum normally
+    digest_squared = md5(b''.join(m.digest() for m in digests))
+    return '"{0}-{1}"'.format(digest_squared.hexdigest(), len(digests))
+
+
+def calculate_etag_content(module, content, etag, s3, bucket, obj, version=None):
+    if not HAS_MD5:
+        return None
+
+    if '-' not in etag:
         return '"{0}"'.format(md5(content).hexdigest())
+    # Multi-part ETag; a hash of the hashes of each part.
+    parts = int(etag[1:-1].split('-')[1])
+    digests = []
+    offset = 0
+
+    s3_kwargs = dict(
+        Bucket=bucket,
+        Key=obj,
+    )
+    if version:
+        s3_kwargs['VersionId'] = version
+
+    for part_num in range(1, parts + 1):
+        s3_kwargs['PartNumber'] = part_num
+        try:
+            head = s3.head_object(**s3_kwargs)
+        except (BotoCoreError, ClientError) as e:
+            module.fail_json_aws(e, msg="Failed to get head object")
+        length = int(head['ContentLength'])
+        digests.append(md5(content[offset:offset + length]))
+        offset += length
+
+    digest_squared = md5(b''.join(m.digest() for m in digests))
+    return '"{0}-{1}"'.format(digest_squared.hexdigest(), len(digests))
 
 
 def validate_bucket_name(module, name):
@@ -93,9 +91,8 @@ def validate_bucket_name(module, name):
     if len(name) > 63:
         module.fail_json(msg='the length of an S3 bucket cannot exceed 63 characters')
 
-    legal_characters = string.ascii_lowercase + ".-" + string.digits
-    illegal_characters = [c for c in name if c not in legal_characters]
-    if illegal_characters:
+    legal_characters = f"{string.ascii_lowercase}.-{string.digits}"
+    if illegal_characters := [c for c in name if c not in legal_characters]:
         module.fail_json(msg='invalid character(s) found in the bucket name')
     if name[-1] not in string.ascii_lowercase + string.digits:
         module.fail_json(msg='bucket names must begin and end with a letter or number')

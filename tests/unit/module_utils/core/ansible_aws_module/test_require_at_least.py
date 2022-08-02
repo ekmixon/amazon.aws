@@ -53,7 +53,7 @@ class TestRequireAtLeast(object):
         monkeypatch.setattr(boto3, "__version__", DUMMY_VERSION)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         assert at_least == module.botocore_at_least(desired_version)
 
@@ -68,7 +68,7 @@ class TestRequireAtLeast(object):
         monkeypatch.setattr(boto3, "__version__", compare_version)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         assert at_least == module.boto3_at_least(desired_version)
 
@@ -83,7 +83,7 @@ class TestRequireAtLeast(object):
         monkeypatch.setattr(boto3, "__version__", DUMMY_VERSION)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.require_botocore_at_least(desired_version)
@@ -116,7 +116,7 @@ class TestRequireAtLeast(object):
         monkeypatch.setattr(boto3, "__version__", compare_version)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.require_boto3_at_least(desired_version)
@@ -151,7 +151,7 @@ class TestRequireAtLeast(object):
         reason = 'testing in progress'
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.require_botocore_at_least(desired_version, reason=reason)
@@ -187,7 +187,7 @@ class TestRequireAtLeast(object):
         reason = 'testing in progress'
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.require_boto3_at_least(desired_version, reason=reason)

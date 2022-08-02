@@ -27,13 +27,17 @@ class IamUtilsTestSuite(unittest.TestCase):
             {
                 "Error": {
                     "Code": "AccessDenied",
-                    "Message": "User: arn:" + partition + ":iam::123456789012:user/ExampleUser "
-                               + "is not authorized to perform: iam:GetUser on resource: user ExampleUser"
+                    "Message": (
+                        f"User: arn:{partition}:iam::123456789012:user/ExampleUser "
+                        + "is not authorized to perform: iam:GetUser on resource: user ExampleUser"
+                    ),
                 },
                 "ResponseMetadata": {
                     "RequestId": "01234567-89ab-cdef-0123-456789abcdef"
-                }
-            }, 'getUser')
+                },
+            },
+            'getUser',
+        )
 
     def _make_unexpected_exception(self):
         return botocore.exceptions.ClientError(

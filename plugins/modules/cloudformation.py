@@ -374,7 +374,7 @@ def get_stack_events(cfn, stack_name, events_limit, token_filter=None):
         return ret
     except (botocore.exceptions.ValidationError, botocore.exceptions.ClientError) as err:  # pylint: disable=duplicate-except
         error_msg = boto_exception(err)
-        ret['log'].append('Unknown error: ' + str(error_msg))
+        ret['log'].append(f'Unknown error: {str(error_msg)}')
         return ret
 
     for e in events:
@@ -437,7 +437,12 @@ def create_changeset(module, stack_params, cfn, events_limit):
         pending_changesets = list_changesets(cfn, stack_params['StackName'])
         if changeset_name in pending_changesets:
             warning = 'WARNING: %d pending changeset(s) exist(s) for this stack!' % len(pending_changesets)
-            result = dict(changed=False, output='ChangeSet %s already exists.' % changeset_name, warnings=[warning])
+            result = dict(
+                changed=False,
+                output=f'ChangeSet {changeset_name} already exists.',
+                warnings=[warning],
+            )
+
         else:
             cs = cfn.create_change_set(aws_retry=True, **stack_params)
             # Make sure we don't enter an infinite loop
@@ -447,7 +452,7 @@ def create_changeset(module, stack_params, cfn, events_limit):
                     newcs = cfn.describe_change_set(aws_retry=True, ChangeSetName=cs['Id'])
                 except botocore.exceptions.BotoCoreError as err:
                     module.fail_json_aws(err)
-                if newcs['Status'] == 'CREATE_PENDING' or newcs['Status'] == 'CREATE_IN_PROGRESS':
+                if newcs['Status'] in ['CREATE_PENDING', 'CREATE_IN_PROGRESS']:
                     time.sleep(1)
                 elif newcs['Status'] == 'FAILED' and "The submitted information didn't contain changes" in newcs['StatusReason']:
                     cfn.delete_change_set(aws_retry=True, ChangeSetName=cs['Id'])
@@ -462,9 +467,12 @@ def create_changeset(module, stack_params, cfn, events_limit):
                 time.sleep(1)
             result = stack_operation(module, cfn, stack_params['StackName'], 'CREATE_CHANGESET', events_limit)
             result['change_set_id'] = cs['Id']
-            result['warnings'] = ['Created changeset named %s for stack %s' % (changeset_name, stack_params['StackName']),
-                                  'You can execute it using: aws cloudformation execute-change-set --change-set-name %s' % cs['Id'],
-                                  'NOTE that dependencies on this stack might fail due to pending changes!']
+            result['warnings'] = [
+                f"Created changeset named {changeset_name} for stack {stack_params['StackName']}",
+                f"You can execute it using: aws cloudformation execute-change-set --change-set-name {cs['Id']}",
+                'NOTE that dependencies on this stack might fail due to pending changes!',
+            ]
+
     except is_boto3_error_message('No updates are to be performed.'):
         result = dict(changed=False, output='Stack is already up-to-date.')
     except Exception as err:
@@ -499,8 +507,7 @@ def update_stack(module, stack_params, cfn, events_limit):
 
 def update_termination_protection(module, cfn, stack_name, desired_termination_protection_state):
     '''updates termination protection of a stack'''
-    stack = get_stack_facts(module, cfn, stack_name)
-    if stack:
+    if stack := get_stack_facts(module, cfn, stack_name):
         if stack['EnableTerminationProtection'] is not desired_termination_protection_state:
             try:
                 cfn.update_termination_protection(
@@ -519,41 +526,54 @@ def stack_operation(module, cfn, stack_name, operation, events_limit, op_token=N
             stack = get_stack_facts(module, cfn, stack_name, raise_errors=True)
             existed.append('yes')
         except Exception:
-            # If the stack previously existed, and now can't be found then it's
-            # been deleted successfully.
-            if 'yes' in existed or operation == 'DELETE':  # stacks may delete fast, look in a few ways.
-                ret = get_stack_events(cfn, stack_name, events_limit, op_token)
-                ret.update({'changed': True, 'output': 'Stack Deleted'})
-                return ret
-            else:
+            if 'yes' not in existed and operation != 'DELETE':
                 return {'changed': True, 'failed': True, 'output': 'Stack Not Found', 'exception': traceback.format_exc()}
+            ret = get_stack_events(cfn, stack_name, events_limit, op_token)
+            ret.update({'changed': True, 'output': 'Stack Deleted'})
+            return ret
         ret = get_stack_events(cfn, stack_name, events_limit, op_token)
         if not stack:
             if 'yes' in existed or operation == 'DELETE':  # stacks may delete fast, look in a few ways.
                 ret = get_stack_events(cfn, stack_name, events_limit, op_token)
                 ret.update({'changed': True, 'output': 'Stack Deleted'})
-                return ret
             else:
                 ret.update({'changed': False, 'failed': True, 'output': 'Stack not found.'})
-                return ret
-        # it covers ROLLBACK_COMPLETE and UPDATE_ROLLBACK_COMPLETE
-        # Possible states: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-describing-stacks.html#w1ab2c15c17c21c13
+            return ret
         elif stack['StackStatus'].endswith('ROLLBACK_COMPLETE') and operation != 'CREATE_CHANGESET':
-            ret.update({'changed': True, 'failed': True, 'output': 'Problem with %s. Rollback complete' % operation})
+            ret.update(
+                {
+                    'changed': True,
+                    'failed': True,
+                    'output': f'Problem with {operation}. Rollback complete',
+                }
+            )
+
             return ret
         elif stack['StackStatus'] == 'DELETE_COMPLETE' and operation == 'CREATE':
             ret.update({'changed': True, 'failed': True, 'output': 'Stack create failed. Delete complete.'})
             return ret
-        # note the ordering of ROLLBACK_COMPLETE, DELETE_COMPLETE, and COMPLETE, because otherwise COMPLETE will match all cases.
         elif stack['StackStatus'].endswith('_COMPLETE'):
-            ret.update({'changed': True, 'output': 'Stack %s complete' % operation})
+            ret.update({'changed': True, 'output': f'Stack {operation} complete'})
             return ret
         elif stack['StackStatus'].endswith('_ROLLBACK_FAILED'):
-            ret.update({'changed': True, 'failed': True, 'output': 'Stack %s rollback failed' % operation})
+            ret.update(
+                {
+                    'changed': True,
+                    'failed': True,
+                    'output': f'Stack {operation} rollback failed',
+                }
+            )
+
             return ret
-        # note the ordering of ROLLBACK_FAILED and FAILED, because otherwise FAILED will match both cases.
         elif stack['StackStatus'].endswith('_FAILED'):
-            ret.update({'changed': True, 'failed': True, 'output': 'Stack %s failed' % operation})
+            ret.update(
+                {
+                    'changed': True,
+                    'failed': True,
+                    'output': f'Stack {operation} failed',
+                }
+            )
+
             return ret
         else:
             # this can loop forever :/
@@ -588,7 +608,10 @@ def check_mode_changeset(module, stack_params, cfn):
             time.sleep(5)
         else:
             # if the changeset doesn't finish in 5 mins, this `else` will trigger and fail
-            module.fail_json(msg="Failed to create change set %s" % stack_params['ChangeSetName'])
+            module.fail_json(
+                msg=f"Failed to create change set {stack_params['ChangeSetName']}"
+            )
+
 
         cfn.delete_change_set(aws_retry=True, ChangeSetName=change_set['Id'])
 

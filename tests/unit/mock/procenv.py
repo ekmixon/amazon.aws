@@ -61,11 +61,7 @@ def swap_stdout():
     """
     old_stdout = sys.stdout
 
-    if PY3:
-        fake_stream = StringIO()
-    else:
-        fake_stream = BytesIO()
-
+    fake_stream = StringIO() if PY3 else BytesIO()
     try:
         sys.stdout = fake_stream
 

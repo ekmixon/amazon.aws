@@ -138,18 +138,17 @@ class Ec2Utils(unittest.TestCase):
         del new_dict['Normal case']
         keys_to_set, keys_to_unset = compare_aws_tags(self.tag_example_dict, new_dict)
         self.assertEqual({}, keys_to_set)
-        self.assertEqual(set(['lowerCamel', 'Normal case']), set(keys_to_unset))
+        self.assertEqual({'lowerCamel', 'Normal case'}, set(keys_to_unset))
         keys_to_set, keys_to_unset = compare_aws_tags(self.tag_example_dict, new_dict, purge_tags=False)
         self.assertEqual({}, keys_to_set)
         self.assertEqual([], keys_to_unset)
         keys_to_set, keys_to_unset = compare_aws_tags(self.tag_example_dict, new_dict, purge_tags=True)
         self.assertEqual({}, keys_to_set)
-        self.assertEqual(set(['lowerCamel', 'Normal case']), set(keys_to_unset))
+        self.assertEqual({'lowerCamel', 'Normal case'}, set(keys_to_unset))
 
     def test_compare_aws_tags_added(self):
-        new_dict = dict(self.tag_example_dict)
         new_keys = {'add_me': 'lower case', 'Me too!': 'Contributing'}
-        new_dict.update(new_keys)
+        new_dict = dict(self.tag_example_dict) | new_keys
         keys_to_set, keys_to_unset = compare_aws_tags(self.tag_example_dict, new_dict)
         self.assertEqual(new_keys, keys_to_set)
         self.assertEqual([], keys_to_unset)
@@ -161,9 +160,8 @@ class Ec2Utils(unittest.TestCase):
         self.assertEqual([], keys_to_unset)
 
     def test_compare_aws_tags_changed(self):
-        new_dict = dict(self.tag_example_dict)
         new_keys = {'UpperCamel': 'anotherCamelValue', 'Normal case': 'normal value'}
-        new_dict.update(new_keys)
+        new_dict = dict(self.tag_example_dict) | new_keys
         keys_to_set, keys_to_unset = compare_aws_tags(self.tag_example_dict, new_dict)
         self.assertEqual(new_keys, keys_to_set)
         self.assertEqual([], keys_to_unset)
@@ -175,10 +173,8 @@ class Ec2Utils(unittest.TestCase):
         self.assertEqual([], keys_to_unset)
 
     def test_compare_aws_tags_complex_update(self):
-        # Adds 'Me too!', Changes 'UpperCamel' and removes 'Normal case'
-        new_dict = dict(self.tag_example_dict)
         new_keys = {'UpperCamel': 'anotherCamelValue', 'Me too!': 'Contributing'}
-        new_dict.update(new_keys)
+        new_dict = dict(self.tag_example_dict) | new_keys
         del new_dict['Normal case']
         keys_to_set, keys_to_unset = compare_aws_tags(self.tag_example_dict, new_dict)
         self.assertEqual(new_keys, keys_to_set)

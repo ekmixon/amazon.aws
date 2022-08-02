@@ -154,10 +154,11 @@ class AnsibleAWSModule(object):
             ln = ln.strip()
             if not ln:
                 continue
-            found_operational_request = re.search(r"OperationModel\(name=.*?\)", ln)
-            if found_operational_request:
-                operation_request = found_operational_request.group(0)[20:-1]
-                resource = re.search(r"https://.*?\.", ln).group(0)[8:-1]
+            if found_operational_request := re.search(
+                r"OperationModel\(name=.*?\)", ln
+            ):
+                operation_request = found_operational_request[0][20:-1]
+                resource = re.search(r"https://.*?\.", ln)[0][8:-1]
                 actions.append("{0}:{1}".format(resource, operation_request))
         return list(set(actions))
 
@@ -216,23 +217,16 @@ class AnsibleAWSModule(object):
         except AttributeError:
             except_msg = to_native(exception)
 
-        if msg is not None:
-            message = '{0}: {1}'.format(msg, except_msg)
-        else:
-            message = except_msg
-
+        message = '{0}: {1}'.format(msg, except_msg) if msg is not None else except_msg
         try:
             response = exception.response
         except AttributeError:
             response = None
 
-        failure = dict(
-            msg=message,
-            exception=last_traceback,
-            **self._gather_versions()
+        failure = (
+            dict(msg=message, exception=last_traceback, **self._gather_versions())
+            | kwargs
         )
-
-        failure.update(kwargs)
 
         if response is not None:
             failure.update(**camel_dict_to_snake_dict(response))
@@ -338,14 +332,11 @@ class _RetryingBotoClientWrapper(object):
 
     def __getattr__(self, name):
         unwrapped = getattr(self.client, name)
-        if name in self.__never_wait:
+        if name in self.__never_wait or not callable(unwrapped):
             return unwrapped
-        elif callable(unwrapped):
-            wrapped = self._create_optional_retry_wrapper_function(unwrapped)
-            setattr(self, name, wrapped)
-            return wrapped
-        else:
-            return unwrapped
+        wrapped = self._create_optional_retry_wrapper_function(unwrapped)
+        setattr(self, name, wrapped)
+        return wrapped
 
 
 def is_boto3_error_code(code, e=None):
@@ -398,12 +389,11 @@ def get_boto3_client_method_parameters(client, method_name, required=False):
     op = client.meta.method_to_api_mapping.get(method_name)
     input_shape = client._service_model.operation_model(op).input_shape
     if not input_shape:
-        parameters = []
+        return []
     elif required:
-        parameters = list(input_shape.required_members)
+        return list(input_shape.required_members)
     else:
-        parameters = list(input_shape.members.keys())
-    return parameters
+        return list(input_shape.members.keys())
 
 
 def scrub_none_parameters(parameters, descend_into_lists=True):
@@ -432,10 +422,7 @@ def scrub_none_parameters(parameters, descend_into_lists=True):
 
 
 def _boto3_handler(obj):
-    if hasattr(obj, 'isoformat'):
-        return obj.isoformat()
-    else:
-        return obj
+    return obj.isoformat() if hasattr(obj, 'isoformat') else obj
 
 
 def normalize_boto3_result(result):

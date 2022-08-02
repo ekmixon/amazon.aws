@@ -181,19 +181,14 @@ def describe_vpcs(connection, module):
     vpc_ids = module.params.get('vpc_ids')
 
     # init empty list for return vars
-    vpc_info = list()
-    vpc_list = list()
-
+    vpc_info = []
     # Get the basic VPC info
     try:
         response = connection.describe_vpcs(VpcIds=vpc_ids, Filters=filters, aws_retry=True)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Unable to describe VPCs {0}".format(vpc_ids))
 
-    # Loop through results and create a list of VPC IDs
-    for vpc in response['Vpcs']:
-        vpc_list.append(vpc['VpcId'])
-
+    vpc_list = [vpc['VpcId'] for vpc in response['Vpcs']]
     # We can get these results in bulk but still needs two separate calls to the API
     try:
         cl_enabled = connection.describe_vpc_classic_link(VpcIds=vpc_list, aws_retry=True)
@@ -209,9 +204,9 @@ def describe_vpcs(connection, module):
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:  # pylint: disable=duplicate-except
         module.fail_json_aws(e, msg='Unable to describe if ClassicLinkDns is supported')
 
+    error_message = "Unable to describe VPC attribute {0}"
     # Loop through the results and add the other VPC attributes we gathered
     for vpc in response['Vpcs']:
-        error_message = "Unable to describe VPC attribute {0}"
         # We have to make two separate calls per VPC to get these attributes.
         try:
             dns_support = connection.describe_vpc_attribute(VpcId=vpc['VpcId'],

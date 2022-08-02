@@ -288,7 +288,7 @@ def create_or_update_bucket(s3_client, module, location):
     try:
         bucket_is_present = bucket_exists(s3_client, name)
     except botocore.exceptions.EndpointConnectionError as e:
-        module.fail_json_aws(e, msg="Invalid endpoint provided: %s" % to_text(e))
+        module.fail_json_aws(e, msg=f"Invalid endpoint provided: {to_text(e)}")
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Failed to check bucket presence")
 
@@ -402,7 +402,7 @@ def create_or_update_bucket(s3_client, module, location):
     else:
         if tags is not None:
             # Tags are always returned as text
-            tags = dict((to_text(k), to_text(v)) for k, v in tags.items())
+            tags = {to_text(k): to_text(v) for k, v in tags.items()}
             if not purge_tags:
                 # Ensure existing tags that aren't updated by desired tags remain
                 current_copy = current_tags_dict.copy()
@@ -414,12 +414,11 @@ def create_or_update_bucket(s3_client, module, location):
                         put_bucket_tagging(s3_client, name, tags)
                     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
                         module.fail_json_aws(e, msg="Failed to update bucket tags")
-                else:
-                    if purge_tags:
-                        try:
-                            delete_bucket_tagging(s3_client, name)
-                        except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-                            module.fail_json_aws(e, msg="Failed to delete bucket tags")
+                elif purge_tags:
+                    try:
+                        delete_bucket_tagging(s3_client, name)
+                    except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
+                        module.fail_json_aws(e, msg="Failed to delete bucket tags")
                 current_tags_dict = wait_tags_are_applied(module, s3_client, name, tags)
                 changed = True
 
@@ -445,13 +444,12 @@ def create_or_update_bucket(s3_client, module, location):
                         module.fail_json_aws(e, msg="Failed to delete bucket encryption")
                     current_encryption = wait_encryption_is_applied(module, s3_client, name, None)
                     changed = True
-            else:
-                if (encryption != current_encryption_algorithm) or (encryption == 'aws:kms' and current_encryption_key != encryption_key_id):
-                    expected_encryption = {'SSEAlgorithm': encryption}
-                    if encryption == 'aws:kms' and encryption_key_id is not None:
-                        expected_encryption.update({'KMSMasterKeyID': encryption_key_id})
-                    current_encryption = put_bucket_encryption_with_retry(module, s3_client, name, expected_encryption)
-                    changed = True
+            elif (encryption != current_encryption_algorithm) or (encryption == 'aws:kms' and current_encryption_key != encryption_key_id):
+                expected_encryption = {'SSEAlgorithm': encryption}
+                if encryption == 'aws:kms' and encryption_key_id is not None:
+                    expected_encryption['KMSMasterKeyID'] = encryption_key_id
+                current_encryption = put_bucket_encryption_with_retry(module, s3_client, name, expected_encryption)
+                changed = True
 
         result['encryption'] = current_encryption
 
@@ -490,19 +488,18 @@ def create_or_update_bucket(s3_client, module, location):
     # -- Bucket ownership
     bucket_ownership = get_bucket_ownership_cntrl(s3_client, module, name)
     result['object_ownership'] = bucket_ownership
-    if delete_object_ownership or object_ownership is not None:
-        if delete_object_ownership:
-            # delete S3 buckect ownership
-            if bucket_ownership is not None:
-                delete_bucket_ownership(s3_client, name)
-                changed = True
-                result['object_ownership'] = None
-        else:
-            # update S3 bucket ownership
-            if bucket_ownership != object_ownership:
-                put_bucket_ownership(s3_client, name, object_ownership)
-                changed = True
-                result['object_ownership'] = object_ownership
+    if delete_object_ownership:
+        # delete S3 buckect ownership
+        if bucket_ownership is not None:
+            delete_bucket_ownership(s3_client, name)
+            changed = True
+            result['object_ownership'] = None
+    elif object_ownership is not None:
+        # update S3 bucket ownership
+        if bucket_ownership != object_ownership:
+            put_bucket_ownership(s3_client, name, object_ownership)
+            changed = True
+            result['object_ownership'] = object_ownership
 
     # Module exit
     module.exit_json(changed=changed, name=name, **result)
@@ -521,7 +518,7 @@ def create_bucket(s3_client, bucket_name, location):
         configuration = {}
         if location not in ('us-east-1', None):
             configuration['LocationConstraint'] = location
-        if len(configuration) > 0:
+        if configuration:
             s3_client.create_bucket(Bucket=bucket_name, CreateBucketConfiguration=configuration)
         else:
             s3_client.create_bucket(Bucket=bucket_name)
@@ -670,7 +667,7 @@ def put_bucket_ownership(s3_client, bucket_name, target):
 
 
 def wait_policy_is_applied(module, s3_client, bucket_name, expected_policy, should_fail=True):
-    for dummy in range(0, 12):
+    for _ in range(12):
         try:
             current_policy = get_bucket_policy(s3_client, bucket_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
@@ -688,7 +685,7 @@ def wait_policy_is_applied(module, s3_client, bucket_name, expected_policy, shou
 
 
 def wait_payer_is_applied(module, s3_client, bucket_name, expected_payer, should_fail=True):
-    for dummy in range(0, 12):
+    for _ in range(12):
         try:
             requester_pays_status = get_bucket_request_payment(s3_client, bucket_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
@@ -705,7 +702,7 @@ def wait_payer_is_applied(module, s3_client, bucket_name, expected_payer, should
 
 
 def wait_encryption_is_applied(module, s3_client, bucket_name, expected_encryption, should_fail=True, retries=12):
-    for dummy in range(0, retries):
+    for _ in range(retries):
         try:
             encryption = get_bucket_encryption(s3_client, bucket_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
@@ -723,7 +720,7 @@ def wait_encryption_is_applied(module, s3_client, bucket_name, expected_encrypti
 
 
 def wait_versioning_is_applied(module, s3_client, bucket_name, required_versioning):
-    for dummy in range(0, 24):
+    for _ in range(24):
         try:
             versioning_status = get_bucket_versioning(s3_client, bucket_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
@@ -737,7 +734,7 @@ def wait_versioning_is_applied(module, s3_client, bucket_name, required_versioni
 
 
 def wait_tags_are_applied(module, s3_client, bucket_name, expected_tags_dict):
-    for dummy in range(0, 12):
+    for _ in range(12):
         try:
             current_tags_dict = get_current_bucket_tags_dict(s3_client, bucket_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
@@ -809,7 +806,7 @@ def destroy_bucket(s3_client, module):
     try:
         bucket_is_present = bucket_exists(s3_client, name)
     except botocore.exceptions.EndpointConnectionError as e:
-        module.fail_json_aws(e, msg="Invalid endpoint provided: %s" % to_text(e))
+        module.fail_json_aws(e, msg=f"Invalid endpoint provided: {to_text(e)}")
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Failed to check bucket presence")
 
@@ -875,9 +872,16 @@ def get_s3_client(module, aws_connect_kwargs, location, ceph, s3_url):
             protocol = "http"
             if port is None:
                 port = 80
-        params = dict(module=module, conn_type='client', resource='s3', region=location,
-                      endpoint="%s://%s:%s" % (protocol, fakes3.hostname, to_text(port)),
-                      use_ssl=fakes3.scheme == 'fakes3s', **aws_connect_kwargs)
+        params = dict(
+            module=module,
+            conn_type='client',
+            resource='s3',
+            region=location,
+            endpoint=f"{protocol}://{fakes3.hostname}:{to_text(port)}",
+            use_ssl=fakes3.scheme == 'fakes3s',
+            **aws_connect_kwargs,
+        )
+
     else:
         params = dict(module=module, conn_type='client', resource='s3', region=location, endpoint=s3_url, **aws_connect_kwargs)
     return boto3_conn(**params)
@@ -897,16 +901,23 @@ def main():
         versioning=dict(type='bool'),
         ceph=dict(default=False, type='bool'),
         encryption=dict(choices=['none', 'AES256', 'aws:kms']),
-        encryption_key_id=dict(),
-        public_access=dict(type='dict', options=dict(
-            block_public_acls=dict(type='bool', default=False),
-            ignore_public_acls=dict(type='bool', default=False),
-            block_public_policy=dict(type='bool', default=False),
-            restrict_public_buckets=dict(type='bool', default=False))),
+        encryption_key_id={},
+        public_access=dict(
+            type='dict',
+            options=dict(
+                block_public_acls=dict(type='bool', default=False),
+                ignore_public_acls=dict(type='bool', default=False),
+                block_public_policy=dict(type='bool', default=False),
+                restrict_public_buckets=dict(type='bool', default=False),
+            ),
+        ),
         delete_public_access=dict(type='bool', default=False),
-        object_ownership=dict(type='str', choices=['BucketOwnerPreferred', 'ObjectWriter']),
+        object_ownership=dict(
+            type='str', choices=['BucketOwnerPreferred', 'ObjectWriter']
+        ),
         delete_object_ownership=dict(type='bool', default=False),
     )
+
 
     required_by = dict(
         encryption_key_id=('encryption',),
@@ -924,14 +935,7 @@ def main():
     region, ec2_url, aws_connect_kwargs = get_aws_connection_info(module, boto3=True)
     validate_bucket_name(module, module.params["name"])
 
-    if region in ('us-east-1', '', None):
-        # default to US Standard region
-        location = 'us-east-1'
-    else:
-        # Boto uses symbolic names for locations but region strings will
-        # actually work fine for everything except us-east-1 (US Standard)
-        location = region
-
+    location = 'us-east-1' if region in ('us-east-1', '', None) else region
     s3_url = module.params.get('s3_url')
     ceph = module.params.get('ceph')
 

@@ -34,7 +34,7 @@ class TestMinimalVersions(object):
         monkeypatch.setattr(boto3, "__version__", self.MINIMAL_BOTO3)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.exit_json()
@@ -57,7 +57,7 @@ class TestMinimalVersions(object):
         monkeypatch.setattr(boto3, "__version__", self.OLD_BOTO3)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict(), check_boto3=False)
+        module = AnsibleAWSModule(argument_spec={}, check_boto3=False)
 
         with pytest.raises(SystemExit) as e:
             module.exit_json()
@@ -80,7 +80,7 @@ class TestMinimalVersions(object):
         monkeypatch.setattr(boto3, "__version__", self.OLD_BOTO3)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.exit_json()
@@ -113,7 +113,7 @@ class TestMinimalVersions(object):
         monkeypatch.setattr(boto3, "__version__", self.MINIMAL_BOTO3)
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.exit_json()
@@ -146,7 +146,7 @@ class TestMinimalVersions(object):
         monkeypatch.setattr(boto3, "__version__", "1.12.999")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
 
         with pytest.raises(SystemExit) as e:
             module.exit_json()
@@ -167,7 +167,7 @@ class TestMinimalVersions(object):
         warnings = return_val.get("warnings")
         assert len(warnings) == 2
 
-        warning_dict = dict()
+        warning_dict = {}
         for warning in warnings:
             if 'boto3' in warning:
                 warning_dict['boto3'] = warning

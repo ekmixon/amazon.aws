@@ -51,7 +51,7 @@ class DictDataLoader(DataLoader):
         if file_name in self._file_mapping:
             return (to_bytes(self._file_mapping[file_name]), False)
         else:
-            raise AnsibleParserError("file not found: %s" % file_name)
+            raise AnsibleParserError(f"file not found: {file_name}")
 
     def path_exists(self, path):
         path = to_text(path)
@@ -66,13 +66,12 @@ class DictDataLoader(DataLoader):
         return path in self._known_directories
 
     def list_directory(self, path):
-        ret = []
         path = to_text(path)
-        for x in (list(self._file_mapping.keys()) + self._known_directories):
-            if x.startswith(path):
-                if os.path.dirname(x) == path:
-                    ret.append(os.path.basename(x))
-        return ret
+        return [
+            os.path.basename(x)
+            for x in (list(self._file_mapping.keys()) + self._known_directories)
+            if x.startswith(path) and os.path.dirname(x) == path
+        ]
 
     def is_executable(self, path):
         # FIXME: figure out a way to make paths return true for this
@@ -91,10 +90,7 @@ class DictDataLoader(DataLoader):
                 dirname = os.path.dirname(dirname)
 
     def push(self, path, content):
-        rebuild_dirs = False
-        if path not in self._file_mapping:
-            rebuild_dirs = True
-
+        rebuild_dirs = path not in self._file_mapping
         self._file_mapping[path] = content
 
         if rebuild_dirs:
@@ -106,7 +102,7 @@ class DictDataLoader(DataLoader):
             self._build_known_directories()
 
     def clear(self):
-        self._file_mapping = dict()
+        self._file_mapping = {}
         self._known_directories = []
 
     def get_basedir(self):

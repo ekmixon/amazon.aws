@@ -100,9 +100,12 @@ class CloudFrontFactsServiceManager(object):
             paginator = self.client.get_paginator('list_distributions')
             result = paginator.paginate().build_full_result().get('DistributionList', {})
             distribution_list = result.get('Items', [])
-            if not keyed:
-                return distribution_list
-            return self.keyed_list_helper(distribution_list)
+            return (
+                self.keyed_list_helper(distribution_list)
+                if keyed
+                else distribution_list
+            )
+
         except botocore.exceptions.ClientError as e:
             self.module.fail_json_aws(e, msg="Error listing distributions")
 
@@ -127,15 +130,18 @@ class CloudFrontFactsServiceManager(object):
             paginator = self.client.get_paginator('list_streaming_distributions')
             result = paginator.paginate().build_full_result()
             streaming_distribution_list = result.get('StreamingDistributionList', {}).get('Items', [])
-            if not keyed:
-                return streaming_distribution_list
-            return self.keyed_list_helper(streaming_distribution_list)
+            return (
+                self.keyed_list_helper(streaming_distribution_list)
+                if keyed
+                else streaming_distribution_list
+            )
+
         except botocore.exceptions.ClientError as e:
             self.module.fail_json_aws(e, msg="Error listing streaming distributions")
 
     def summary(self):
         summary_dict = {}
-        summary_dict.update(self.summary_get_distribution_list(False))
+        summary_dict |= self.summary_get_distribution_list(False)
         summary_dict.update(self.summary_get_distribution_list(True))
         summary_dict.update(self.summary_get_origin_access_identity_list())
         return summary_dict
@@ -160,15 +166,14 @@ class CloudFrontFactsServiceManager(object):
             distribution_list = {list_name: []}
             distributions = self.list_streaming_distributions(False) if streaming else self.list_distributions(False)
             for dist in distributions:
-                temp_distribution = {}
-                for key_name in key_list:
-                    temp_distribution[key_name] = dist[key_name]
+                temp_distribution = {key_name: dist[key_name] for key_name in key_list}
                 temp_distribution['Aliases'] = list(dist['Aliases'].get('Items', []))
                 temp_distribution['ETag'] = self.get_etag_from_distribution_id(dist['Id'], streaming)
                 if not streaming:
                     temp_distribution['WebACLId'] = dist['WebACLId']
-                    invalidation_ids = self.get_list_of_invalidation_ids_from_distribution_id(dist['Id'])
-                    if invalidation_ids:
+                    if invalidation_ids := self.get_list_of_invalidation_ids_from_distribution_id(
+                        dist['Id']
+                    ):
                         temp_distribution['Invalidations'] = invalidation_ids
                 resource_tags = self.client.list_tags_for_resource(Resource=dist['ARN'], aws_retry=True)
                 temp_distribution['Tags'] = boto3_tag_list_to_ansible_dict(resource_tags['Tags'].get('Items', []))
@@ -181,19 +186,18 @@ class CloudFrontFactsServiceManager(object):
 
     def get_etag_from_distribution_id(self, distribution_id, streaming):
         distribution = {}
-        if not streaming:
-            distribution = self.get_distribution(distribution_id)
-        else:
-            distribution = self.get_streaming_distribution(distribution_id)
+        distribution = (
+            self.get_streaming_distribution(distribution_id)
+            if streaming
+            else self.get_distribution(distribution_id)
+        )
+
         return distribution['ETag']
 
     def get_list_of_invalidation_ids_from_distribution_id(self, distribution_id):
         try:
-            invalidation_ids = []
             invalidations = self.list_invalidations(distribution_id)
-            for invalidation in invalidations:
-                invalidation_ids.append(invalidation['Id'])
-            return invalidation_ids
+            return [invalidation['Id'] for invalidation in invalidations]
         except botocore.exceptions.ClientError as e:
             self.module.fail_json_aws(e, msg="Error getting list of invalidation ids")
 
@@ -220,12 +224,12 @@ class CloudFrontFactsServiceManager(object):
             self.module.fail_json_aws(e, msg="Error getting list of aliases from distribution_id")
 
     def keyed_list_helper(self, list_to_key):
-        keyed_list = dict()
+        keyed_list = {}
         for item in list_to_key:
             distribution_id = item['Id']
             if 'Items' in item['Aliases']:
                 aliases = item['Aliases']['Items']
                 for alias in aliases:
-                    keyed_list.update({alias: item})
-            keyed_list.update({distribution_id: item})
+                    keyed_list[alias] = item
+            keyed_list[distribution_id] = item
         return keyed_list

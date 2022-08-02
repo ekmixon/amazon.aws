@@ -311,16 +311,14 @@ def fetch_dhcp_options_for_vpc(client, module, vpc_id):
 
 
 def remove_dhcp_options_by_id(client, module, dhcp_options_id):
-    changed = False
     # First, check if this dhcp option is associated to any other vpcs
     try:
         associations = client.describe_vpcs(aws_retry=True, Filters=[{'Name': 'dhcp-options-id', 'Values': [dhcp_options_id]}])
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Unable to describe VPC associations for dhcp option id {0}".format(dhcp_options_id))
     if len(associations['Vpcs']) > 0:
-        return changed
+        return False
 
-    changed = True
     if not module.check_mode:
         try:
             client.delete_dhcp_options(aws_retry=True, DhcpOptionsId=dhcp_options_id)
@@ -329,7 +327,7 @@ def remove_dhcp_options_by_id(client, module, dhcp_options_id):
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
             module.fail_json_aws(e, msg="Unable to delete dhcp option {0}".format(dhcp_options_id))
 
-    return changed
+    return True
 
 
 def match_dhcp_options(client, module, new_config):
@@ -369,19 +367,16 @@ def create_dhcp_config(module):
     if params['domain_name'] is not None:
         new_config.append({'Key': 'domain-name', 'Values': [{'Value': params['domain_name']}]})
     if params['dns_servers'] is not None:
-        dns_server_list = []
-        for server in params['dns_servers']:
-            dns_server_list.append({'Value': server})
+        dns_server_list = [{'Value': server} for server in params['dns_servers']]
         new_config.append({'Key': 'domain-name-servers', 'Values': dns_server_list})
     if params['ntp_servers'] is not None:
-        ntp_server_list = []
-        for server in params['ntp_servers']:
-            ntp_server_list.append({'Value': server})
+        ntp_server_list = [{'Value': server} for server in params['ntp_servers']]
         new_config.append({'Key': 'ntp-servers', 'Values': ntp_server_list})
     if params['netbios_name_servers'] is not None:
-        netbios_server_list = []
-        for server in params['netbios_name_servers']:
-            netbios_server_list.append({'Value': server})
+        netbios_server_list = [
+            {'Value': server} for server in params['netbios_name_servers']
+        ]
+
         new_config.append({'Key': 'netbios-name-servers', 'Values': netbios_server_list})
     if params['netbios_node_type'] is not None:
         new_config.append({'Key': 'netbios-node-type', 'Values': params['netbios_node_type']})
@@ -400,10 +395,17 @@ def create_dhcp_option_set(client, module, new_config):
     """
     changed = True
     desired_config = normalize_ec2_vpc_dhcp_config(new_config)
-    create_config = []
-    for option in ['domain-name', 'domain-name-servers', 'ntp-servers', 'netbios-name-servers']:
-        if desired_config.get(option):
-            create_config.append({'Key': option, 'Values': desired_config[option]})
+    create_config = [
+        {'Key': option, 'Values': desired_config[option]}
+        for option in [
+            'domain-name',
+            'domain-name-servers',
+            'ntp-servers',
+            'netbios-name-servers',
+        ]
+        if desired_config.get(option)
+    ]
+
     if desired_config.get('netbios-node-type'):
         # We need to listify this one
         create_config.append({'Key': 'netbios-node-type', 'Values': [desired_config['netbios-node-type']]})
@@ -526,15 +528,14 @@ def main():
             if inherit_existing and existing_config:
                 changed, new_config = inherit_dhcp_config(existing_config, new_config)
             # Do the vpc's dhcp options already match what we're asked for? if so we are done
-            if existing_config:
-                if new_config == existing_config:
-                    dhcp_options_id = existing_id
-                    if tags or purge_tags:
-                        tags_changed = ensure_tags(client, module, dhcp_options_id, tags, purge_tags)
-                        changed = changed or tags_changed
-                    return_config = normalize_ec2_vpc_dhcp_config(new_config)
-                    results = get_dhcp_options_info(client, module, dhcp_options_id)
-                    module.exit_json(changed=changed, new_options=return_config, dhcp_options_id=dhcp_options_id, dhcp_options=results)
+            if existing_config and new_config == existing_config:
+                dhcp_options_id = existing_id
+                if tags or purge_tags:
+                    tags_changed = ensure_tags(client, module, dhcp_options_id, tags, purge_tags)
+                    changed = changed or tags_changed
+                return_config = normalize_ec2_vpc_dhcp_config(new_config)
+                results = get_dhcp_options_info(client, module, dhcp_options_id)
+                module.exit_json(changed=changed, new_options=return_config, dhcp_options_id=dhcp_options_id, dhcp_options=results)
         # If no vpc_id was given, or the options don't match then look for an existing set using tags
         found, dhcp_options_id = match_dhcp_options(client, module, new_config)
 

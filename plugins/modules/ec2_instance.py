@@ -868,14 +868,14 @@ def tower_callback_script(tower_conf, windows=False, passwd=None):
         </powershell>
         """
         return to_native(textwrap.dedent(script_tpl).format(PASS=passwd, SCRIPT=script_url))
-    elif windows and passwd is None:
+    elif windows:
         script_tpl = """<powershell>
         $admin = [adsi]("WinNT://./administrator, user")
         Invoke-Expression ((New-Object System.Net.Webclient).DownloadString('{SCRIPT}'))
         </powershell>
         """
         return to_native(textwrap.dedent(script_tpl).format(PASS=passwd, SCRIPT=script_url))
-    elif not windows:
+    else:
         for p in ['tower_address', 'job_template_id', 'host_config_key']:
             if p not in tower_conf:
                 module.fail_json(msg="Incomplete tower_callback configuration. tower_callback.{0} not set.".format(p))
@@ -936,7 +936,7 @@ def manage_tags(match, new_tags, purge_tags, ec2):
                 Tags=ansible_dict_to_boto3_tag_list(tags_to_set))
             changed |= True
         if tags_to_delete:
-            delete_with_current_values = dict((k, old_tags.get(k)) for k in tags_to_delete)
+            delete_with_current_values = {k: old_tags.get(k) for k in tags_to_delete}
             ec2.delete_tags(
                 aws_retry=True,
                 Resources=[match['InstanceId']],
@@ -963,10 +963,9 @@ def add_or_update_instance_profile(instance, desired_profile_name, ec2):
         if desired_profile_name in (instance_profile_setting.get('Name'), instance_profile_setting.get('Arn')):
             # great, the profile we asked for is what's there
             return False
-        else:
-            desired_arn = determine_iam_role(desired_profile_name)
-            if instance_profile_setting.get('Arn') == desired_arn:
-                return False
+        desired_arn = determine_iam_role(desired_profile_name)
+        if instance_profile_setting.get('Arn') == desired_arn:
+            return False
 
         # update association
         try:
@@ -1393,28 +1392,28 @@ def diff_instance_and_params(instance, params, ec2, skip=None):
 
 
 def change_network_attachments(instance, params, ec2):
-    if (params.get('network') or {}).get('interfaces') is not None:
-        new_ids = []
-        for inty in params.get('network').get('interfaces'):
-            if isinstance(inty, dict) and 'id' in inty:
-                new_ids.append(inty['id'])
-            elif isinstance(inty, string_types):
-                new_ids.append(inty)
-        # network.interfaces can create the need to attach new interfaces
-        old_ids = [inty['NetworkInterfaceId'] for inty in instance['NetworkInterfaces']]
-        to_attach = set(new_ids) - set(old_ids)
-        for eni_id in to_attach:
-            try:
-                ec2.attach_network_interface(
-                    aws_retry=True,
-                    DeviceIndex=new_ids.index(eni_id),
-                    InstanceId=instance['InstanceId'],
-                    NetworkInterfaceId=eni_id,
-                )
-            except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-                module.fail_json_aws(e, msg="Could not attach interface {0} to instance {1}".format(eni_id, instance['InstanceId']))
-        return bool(len(to_attach))
-    return False
+    if (params.get('network') or {}).get('interfaces') is None:
+        return False
+    new_ids = []
+    for inty in params.get('network').get('interfaces'):
+        if isinstance(inty, dict) and 'id' in inty:
+            new_ids.append(inty['id'])
+        elif isinstance(inty, string_types):
+            new_ids.append(inty)
+    # network.interfaces can create the need to attach new interfaces
+    old_ids = [inty['NetworkInterfaceId'] for inty in instance['NetworkInterfaces']]
+    to_attach = set(new_ids) - set(old_ids)
+    for eni_id in to_attach:
+        try:
+            ec2.attach_network_interface(
+                aws_retry=True,
+                DeviceIndex=new_ids.index(eni_id),
+                InstanceId=instance['InstanceId'],
+                NetworkInterfaceId=eni_id,
+            )
+        except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
+            module.fail_json_aws(e, msg="Could not attach interface {0} to instance {1}".format(eni_id, instance['InstanceId']))
+    return bool(len(to_attach))
 
 
 @AWSRetry.jittered_backoff()
@@ -1450,9 +1449,7 @@ def get_default_vpc(ec2):
             Filters=ansible_dict_to_boto3_filter_list({'isDefault': 'true'}))
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
         module.fail_json_aws(e, msg="Could not describe default VPC")
-    if len(vpcs.get('Vpcs', [])):
-        return vpcs.get('Vpcs')[0]
-    return None
+    return vpcs.get('Vpcs')[0] if len(vpcs.get('Vpcs', [])) else None
 
 
 def get_default_subnet(ec2, vpc, availability_zone=None):
@@ -1469,7 +1466,11 @@ def get_default_subnet(ec2, vpc, availability_zone=None):
         module.fail_json_aws(e, msg="Could not describe default subnets for VPC {0}".format(vpc['VpcId']))
     if len(subnets.get('Subnets', [])):
         if availability_zone is not None:
-            subs_by_az = dict((subnet['AvailabilityZone'], subnet) for subnet in subnets.get('Subnets'))
+            subs_by_az = {
+                subnet['AvailabilityZone']: subnet
+                for subnet in subnets.get('Subnets')
+            }
+
             if availability_zone in subs_by_az:
                 return subs_by_az[availability_zone]
 
@@ -1484,7 +1485,7 @@ def ensure_instance_state(state, ec2):
     """
     Sets return keys depending on the desired instance state
     """
-    results = dict()
+    results = {}
     if state in ('running', 'started'):
         changed, failed, instances, failure_reason = change_instance_state(filters=module.params.get('filters'), desired_state='RUNNING', ec2=ec2)
         if failed:
@@ -1570,7 +1571,12 @@ def change_instance_state(filters, desired_state, ec2):
 
     changed = set()
     instances = find_instances(ec2, filters=filters)
-    to_change = set(i['InstanceId'] for i in instances if i['State']['Name'].upper() != desired_state)
+    to_change = {
+        i['InstanceId']
+        for i in instances
+        if i['State']['Name'].upper() != desired_state
+    }
+
     unchanged = set()
     failure_reason = ""
 
@@ -1614,7 +1620,7 @@ def change_instance_state(filters, desired_state, ec2):
     change_failed = list(to_change - changed)
 
     if instances:
-        instances = find_instances(ec2, ids=list(i['InstanceId'] for i in instances))
+        instances = find_instances(ec2, ids=[i['InstanceId'] for i in instances])
     return changed, change_failed, instances, failure_reason
 
 
@@ -1639,7 +1645,6 @@ def determine_iam_role(name_or_arn):
 
 def handle_existing(existing_matches, changed, ec2, state):
     to_change_state = False
-    state_results = []
     alter_config_result = []
     if state in ('running', 'started') and [i for i in existing_matches if i['State']['Name'] != 'running']:
         to_change_state = True
@@ -1647,9 +1652,7 @@ def handle_existing(existing_matches, changed, ec2, state):
         to_change_state = True
     elif state in ('restarted', 'rebooted'):
         to_change_state = True
-    if to_change_state:
-        state_results = ensure_instance_state(state, ec2)
-
+    state_results = ensure_instance_state(state, ec2) if to_change_state else []
     changes = diff_instance_and_params(existing_matches[0], module.params, ec2)
 
     for c in changes:
@@ -1669,11 +1672,11 @@ def handle_existing(existing_matches, changed, ec2, state):
         changes=changes,
     )
 
-    if len(state_results):
-        result = {**state_results, **alter_config_result}
-    else:
-        result = alter_config_result
-    return result
+    return (
+        {**state_results, **alter_config_result}
+        if len(state_results)
+        else alter_config_result
+    )
 
 
 def ensure_present(existing_matches, changed, ec2, state):
@@ -1791,14 +1794,15 @@ def main():
         ],
         supports_check_mode=True
     )
-    result = dict()
+    result = {}
 
-    if module.params.get('network'):
-        if module.params.get('network').get('interfaces'):
-            if module.params.get('security_group'):
-                module.fail_json(msg="Parameter network.interfaces can't be used with security_group")
-            if module.params.get('security_groups'):
-                module.fail_json(msg="Parameter network.interfaces can't be used with security_groups")
+    if module.params.get('network') and module.params.get('network').get(
+        'interfaces'
+    ):
+        if module.params.get('security_group'):
+            module.fail_json(msg="Parameter network.interfaces can't be used with security_group")
+        if module.params.get('security_groups'):
+            module.fail_json(msg="Parameter network.interfaces can't be used with security_groups")
 
     state = module.params.get('state')
     ec2 = module.client('ec2', retry_decorator=AWSRetry.jittered_backoff())
@@ -1812,22 +1816,19 @@ def main():
         elif isinstance(module.params.get('instance_ids'), list) and len(module.params.get('instance_ids')):
             filters['instance-id'] = module.params.get('instance_ids')
         else:
-            if not module.params.get('vpc_subnet_id'):
-                if module.params.get('network'):
-                    # grab AZ from one of the ENIs
-                    ints = module.params.get('network').get('interfaces')
-                    if ints:
-                        filters['network-interface.network-interface-id'] = []
-                        for i in ints:
-                            if isinstance(i, dict):
-                                i = i['id']
-                            filters['network-interface.network-interface-id'].append(i)
-                else:
-                    sub = get_default_subnet(ec2, get_default_vpc(ec2), availability_zone=module.params.get('availability_zone'))
-                    filters['subnet-id'] = sub['SubnetId']
-            else:
+            if module.params.get('vpc_subnet_id'):
                 filters['subnet-id'] = [module.params.get('vpc_subnet_id')]
 
+            elif module.params.get('network'):
+                if ints := module.params.get('network').get('interfaces'):
+                    filters['network-interface.network-interface-id'] = []
+                    for i in ints:
+                        if isinstance(i, dict):
+                            i = i['id']
+                        filters['network-interface.network-interface-id'].append(i)
+            else:
+                sub = get_default_subnet(ec2, get_default_vpc(ec2), availability_zone=module.params.get('availability_zone'))
+                filters['subnet-id'] = sub['SubnetId']
             if module.params.get('name'):
                 filters['tag:Name'] = [module.params.get('name')]
 
@@ -1846,8 +1847,7 @@ def main():
             warn_if_public_ip_assignment_changed(match)
             warn_if_cpu_options_changed(match)
             tags = module.params.get('tags') or {}
-            name = module.params.get('name')
-            if name:
+            if name := module.params.get('name'):
                 tags['Name'] = name
             changed |= manage_tags(match, tags, module.params.get('purge_tags', False), ec2)
 

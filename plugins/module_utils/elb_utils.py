@@ -63,14 +63,14 @@ def get_elb_listener(connection, module, elb_arn, listener_port):
     except (BotoCoreError, ClientError) as e:
         module.fail_json_aws(e)
 
-    l = None
-
-    for listener in listeners:
-        if listener['Port'] == listener_port:
-            l = listener
-            break
-
-    return l
+    return next(
+        (
+            listener
+            for listener in listeners
+            if listener['Port'] == listener_port
+        ),
+        None,
+    )
 
 
 def get_elb_listener_rules(connection, module, listener_arn):
@@ -104,6 +104,4 @@ def convert_tg_name_to_arn(connection, module, tg_name):
     except (BotoCoreError, ClientError) as e:
         module.fail_json_aws(e)
 
-    tg_arn = response['TargetGroups'][0]['TargetGroupArn']
-
-    return tg_arn
+    return response['TargetGroups'][0]['TargetGroupArn']

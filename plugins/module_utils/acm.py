@@ -55,17 +55,17 @@ class ACMServiceManager(object):
         client.delete_certificate(CertificateArn=arn)
 
     def delete_certificate(self, client, module, arn):
-        module.debug("Attempting to delete certificate %s" % arn)
+        module.debug(f"Attempting to delete certificate {arn}")
         try:
             self.delete_certificate_with_backoff(client, arn)
         except (BotoCoreError, ClientError) as e:
             module.fail_json_aws(e, msg="Couldn't delete certificate %s" % arn)
-        module.debug("Successfully deleted certificate %s" % arn)
+        module.debug(f"Successfully deleted certificate {arn}")
 
     @AWSRetry.backoff(tries=5, delay=5, backoff=2.0, catch_extra_error_codes=['RequestInProgressException'])
     def list_certificates_with_backoff(self, client, statuses=None):
         paginator = client.get_paginator('list_certificates')
-        kwargs = dict()
+        kwargs = {}
         if statuses:
             kwargs['CertificateStatuses'] = statuses
         return paginator.paginate(**kwargs).build_full_result()['CertificateSummaryList']
@@ -134,7 +134,7 @@ class ACMServiceManager(object):
                 except (TypeError, AttributeError) as e:
                     for c in results:
                         if 'tags' not in c:
-                            module.debug("cert is %s" % str(c))
+                            module.debug(f"cert is {str(c)}")
                     module.fail_json(msg="ACM tag filtering err", exception=e)
 
         return results
@@ -154,23 +154,28 @@ class ACMServiceManager(object):
     @AWSRetry.backoff(tries=5, delay=5, backoff=2.0)
     def import_certificate_with_backoff(self, client, certificate, private_key, certificate_chain, arn):
         if certificate_chain:
-            if arn:
-                ret = client.import_certificate(Certificate=to_bytes(certificate),
-                                                PrivateKey=to_bytes(private_key),
-                                                CertificateChain=to_bytes(certificate_chain),
-                                                CertificateArn=arn)
-            else:
-                ret = client.import_certificate(Certificate=to_bytes(certificate),
-                                                PrivateKey=to_bytes(private_key),
-                                                CertificateChain=to_bytes(certificate_chain))
+            ret = (
+                client.import_certificate(
+                    Certificate=to_bytes(certificate),
+                    PrivateKey=to_bytes(private_key),
+                    CertificateChain=to_bytes(certificate_chain),
+                    CertificateArn=arn,
+                )
+                if arn
+                else client.import_certificate(
+                    Certificate=to_bytes(certificate),
+                    PrivateKey=to_bytes(private_key),
+                    CertificateChain=to_bytes(certificate_chain),
+                )
+            )
+
+        elif arn:
+            ret = client.import_certificate(Certificate=to_bytes(certificate),
+                                            PrivateKey=to_bytes(private_key),
+                                            CertificateArn=arn)
         else:
-            if arn:
-                ret = client.import_certificate(Certificate=to_bytes(certificate),
-                                                PrivateKey=to_bytes(private_key),
-                                                CertificateArn=arn)
-            else:
-                ret = client.import_certificate(Certificate=to_bytes(certificate),
-                                                PrivateKey=to_bytes(private_key))
+            ret = client.import_certificate(Certificate=to_bytes(certificate),
+                                            PrivateKey=to_bytes(private_key))
         return ret['CertificateArn']
 
     # Tags are a normal Ansible style dict
@@ -194,13 +199,16 @@ class ACMServiceManager(object):
             # I'm not sure whether the API guarentees that the ARN will not change
             # I'm failing just in case.
             # If I'm wrong, I'll catch it in the integration tests.
-            module.fail_json(msg="ARN changed with ACM update, from %s to %s" % (original_arn, arn))
+            module.fail_json(
+                msg=f"ARN changed with ACM update, from {original_arn} to {arn}"
+            )
+
 
         # tag that cert
         try:
             self.tag_certificate_with_backoff(client, arn, tags)
         except (BotoCoreError, ClientError) as e:
-            module.debug("Attempting to delete the cert we just created, arn=%s" % arn)
+            module.debug(f"Attempting to delete the cert we just created, arn={arn}")
             try:
                 self.delete_certificate_with_backoff(client, arn)
             except Exception as f:

@@ -54,7 +54,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.ClientError(self.EXAMPLE_EXCEPTION_DATA, "testCall")
         except botocore.exceptions.ClientError as e:
@@ -81,7 +81,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.ClientError(self.EXAMPLE_EXCEPTION_DATA, "testCall")
         except botocore.exceptions.ClientError as e:
@@ -91,7 +91,7 @@ class TestFailJsonAws(object):
         out, err = capfd.readouterr()
         return_val = json.loads(out)
 
-        assert return_val.get("msg") == self.FAIL_MSG + ": " + self.EXAMPLE_MSG
+        assert return_val.get("msg") == f"{self.FAIL_MSG}: {self.EXAMPLE_MSG}"
         assert return_val.get("boto3_version") == "1.2.4"
         assert return_val.get("botocore_version") == "1.2.3"
         assert return_val.get("exception") is not None
@@ -108,7 +108,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.ClientError(self.EXAMPLE_EXCEPTION_DATA, "testCall")
         except botocore.exceptions.ClientError as e:
@@ -118,7 +118,7 @@ class TestFailJsonAws(object):
         out, err = capfd.readouterr()
         return_val = json.loads(out)
 
-        assert return_val.get("msg") == self.FAIL_MSG + ": " + self.EXAMPLE_MSG
+        assert return_val.get("msg") == f"{self.FAIL_MSG}: {self.EXAMPLE_MSG}"
         assert return_val.get("boto3_version") == "1.2.4"
         assert return_val.get("botocore_version") == "1.2.3"
         assert return_val.get("exception") is not None
@@ -135,7 +135,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.ClientError(self.EXAMPLE_EXCEPTION_DATA, "testCall")
         except botocore.exceptions.ClientError as e:
@@ -163,7 +163,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.ClientError(self.EXAMPLE_EXCEPTION_DATA, "testCall")
         except botocore.exceptions.ClientError as e:
@@ -173,7 +173,7 @@ class TestFailJsonAws(object):
         out, err = capfd.readouterr()
         return_val = json.loads(out)
 
-        assert return_val.get("msg") == self.FAIL_MSG + ": " + self.EXAMPLE_MSG
+        assert return_val.get("msg") == f"{self.FAIL_MSG}: {self.EXAMPLE_MSG}"
         assert return_val.get("extra_key") == "Some Value"
         assert return_val.get("boto3_version") == "1.2.4"
         assert return_val.get("botocore_version") == "1.2.3"
@@ -191,7 +191,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.BotoCoreError()
         except botocore.exceptions.BotoCoreError as e:
@@ -218,7 +218,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.BotoCoreError()
         except botocore.exceptions.BotoCoreError as e:
@@ -228,7 +228,7 @@ class TestFailJsonAws(object):
         out, err = capfd.readouterr()
         return_val = json.loads(out)
 
-        assert return_val.get("msg") == self.FAIL_MSG + ": " + self.DEFAULT_CORE_MSG
+        assert return_val.get("msg") == f"{self.FAIL_MSG}: {self.DEFAULT_CORE_MSG}"
         assert return_val.get("boto3_version") == "1.2.4"
         assert return_val.get("botocore_version") == "1.2.3"
         assert return_val.get("exception") is not None
@@ -246,7 +246,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.BotoCoreError()
         except botocore.exceptions.BotoCoreError as e:
@@ -256,7 +256,7 @@ class TestFailJsonAws(object):
         out, err = capfd.readouterr()
         return_val = json.loads(out)
 
-        assert return_val.get("msg") == self.FAIL_MSG + ": " + self.DEFAULT_CORE_MSG
+        assert return_val.get("msg") == f"{self.FAIL_MSG}: {self.DEFAULT_CORE_MSG}"
         assert return_val.get("boto3_version") == "1.2.4"
         assert return_val.get("botocore_version") == "1.2.3"
         assert return_val.get("exception") is not None
@@ -273,7 +273,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.BotoCoreError()
         except botocore.exceptions.BotoCoreError as e:
@@ -301,7 +301,7 @@ class TestFailJsonAws(object):
         monkeypatch.setattr(boto3, "__version__", "1.2.4")
 
         # Create a minimal module that we can call
-        module = AnsibleAWSModule(argument_spec=dict())
+        module = AnsibleAWSModule(argument_spec={})
         try:
             raise botocore.exceptions.BotoCoreError()
         except botocore.exceptions.BotoCoreError as e:
@@ -311,7 +311,7 @@ class TestFailJsonAws(object):
         out, err = capfd.readouterr()
         return_val = json.loads(out)
 
-        assert return_val.get("msg") == self.FAIL_MSG + ": " + self.DEFAULT_CORE_MSG
+        assert return_val.get("msg") == f"{self.FAIL_MSG}: {self.DEFAULT_CORE_MSG}"
         assert return_val.get("extra_key") == "Some Value"
         assert return_val.get("boto3_version") == "1.2.4"
         assert return_val.get("botocore_version") == "1.2.3"

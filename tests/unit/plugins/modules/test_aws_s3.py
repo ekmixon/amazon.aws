@@ -35,4 +35,4 @@ class TestUrlparse(unittest.TestCase):
         rgw = True
         s3_url = "http://bla.blubb"
         actual = s3.get_s3_connection(None, aws_connect_kwargs, location, rgw, s3_url)
-        self.assertEqual(bool("bla.blubb" in str(actual._endpoint)), True)
+        self.assertEqual("bla.blubb" in str(actual._endpoint), True)

@@ -228,14 +228,14 @@ def list_ec2_images(ec2_client, module):
     for owner in owners:
         if owner.isdigit():
             if 'owner-id' not in filters:
-                filters['owner-id'] = list()
+                filters['owner-id'] = []
             filters['owner-id'].append(owner)
         elif owner == 'self':
             # self not a valid owner-alias filter (https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeImages.html)
             owner_param.append(owner)
         else:
             if 'owner-alias' not in filters:
-                filters['owner-alias'] = list()
+                filters['owner-alias'] = []
             filters['owner-alias'].append(owner)
 
     filters = ansible_dict_to_boto3_filter_list(filters)

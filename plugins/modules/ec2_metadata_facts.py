@@ -462,9 +462,7 @@ class Ec2Metadata(object):
 
     def _fetch(self, url):
         encoded_url = quote(url, safe='%/:=&?~#+!$,;\'@()*[]')
-        headers = {}
-        if self._token:
-            headers = {'X-aws-ec2-metadata-token': self._token}
+        headers = {'X-aws-ec2-metadata-token': self._token} if self._token else {}
         response, info = fetch_url(self.module, encoded_url, headers=headers, force=True)
 
         if info.get('status') in (401, 403):
@@ -477,10 +475,7 @@ class Ec2Metadata(object):
             if info.get('status') not in (200, 404):
                 # fail out now
                 self.module.fail_json(msg='Failed to retrieve metadata from AWS: {0}'.format(info['msg']), response=info)
-        if response:
-            data = response.read()
-        else:
-            data = None
+        data = response.read() if response else None
         return to_text(data)
 
     def _mangle_fields(self, fields, uri, filter_patterns=None):
@@ -490,18 +485,20 @@ class Ec2Metadata(object):
         for key, value in fields.items():
             split_fields = key[len(uri):].split('/')
             # Parse out the IAM role name (which is _not_ the same as the instance profile name)
-            if len(split_fields) == 3 and split_fields[0:2] == ['iam', 'security-credentials'] and ':' not in split_fields[2]:
+            if (
+                len(split_fields) == 3
+                and split_fields[:2] == ['iam', 'security-credentials']
+                and ':' not in split_fields[2]
+            ):
                 new_fields[self._prefix % "iam-instance-profile-role"] = split_fields[2]
             if len(split_fields) > 1 and split_fields[1]:
                 new_key = "-".join(split_fields)
-                new_fields[self._prefix % new_key] = value
             else:
                 new_key = "".join(split_fields)
-                new_fields[self._prefix % new_key] = value
+            new_fields[self._prefix % new_key] = value
         for pattern in filter_patterns:
             for key in dict(new_fields):
-                match = re.search(pattern, key)
-                if match:
+                if match := re.search(pattern, key):
                     new_fields.pop(key)
         return new_fields
 
@@ -513,23 +510,20 @@ class Ec2Metadata(object):
         for field in subfields:
             if field.endswith('/') and recurse:
                 self.fetch(uri + field)
-            if uri.endswith('/'):
-                new_uri = uri + field
-            else:
-                new_uri = uri + '/' + field
+            new_uri = uri + field if uri.endswith('/') else f'{uri}/{field}'
             if new_uri not in self._data and not new_uri.endswith('/'):
                 content = self._fetch(new_uri)
-                if field == 'security-groups' or field == 'security-group-ids':
+                if field in ['security-groups', 'security-group-ids']:
                     sg_fields = ",".join(content.split('\n'))
-                    self._data['%s' % (new_uri)] = sg_fields
+                    self._data[f'{new_uri}'] = sg_fields
                 else:
                     try:
                         dict = json.loads(content)
-                        self._data['%s' % (new_uri)] = content
+                        self._data[f'{new_uri}'] = content
                         for (key, value) in dict.items():
-                            self._data['%s:%s' % (new_uri, key.lower())] = value
+                            self._data[f'{new_uri}:{key.lower()}'] = value
                     except Exception:
-                        self._data['%s' % (new_uri)] = content  # not a stringified JSON string
+                        self._data[f'{new_uri}'] = content
 
     def fix_invalid_varnames(self, data):
         """Change ':'' and '-' to '_' to ensure valid template variable names"""
@@ -557,10 +551,7 @@ class Ec2Metadata(object):
             if info.get('status') not in (200, 404):
                 # fail out now
                 self.module.fail_json(msg='Failed to retrieve metadata token from AWS: {0}'.format(info['msg']), response=info)
-        if response:
-            token_data = response.read()
-        else:
-            token_data = None
+        token_data = response.read() if response else None
         return to_text(token_data)
 
     def run(self):

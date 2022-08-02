@@ -132,15 +132,16 @@ def get_volume_info(volume, region):
 
     attachment = volume["attachments"]
 
-    attachment_data = []
-    for data in volume["attachments"]:
-        attachment_data.append({
+    attachment_data = [
+        {
             'attach_time': data.get('attach_time', None),
             'device': data.get('device', None),
             'instance_id': data.get('instance_id', None),
             'status': data.get('state', None),
-            'delete_on_termination': data.get('delete_on_termination', None)
-        })
+            'delete_on_termination': data.get('delete_on_termination', None),
+        }
+        for data in attachment
+    ]
 
     volume_info = {
         'create_time': volume["create_time"],

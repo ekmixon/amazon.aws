@@ -38,13 +38,13 @@ except ImportError:
 
 @pytest.fixture
 def dummy_credentials():
-    dummy_credentials = {}
-    dummy_credentials['boto_profile'] = None
-    dummy_credentials['aws_secret_key'] = "notasecret"
-    dummy_credentials['aws_access_key'] = "notakey"
-    dummy_credentials['aws_security_token'] = None
-    dummy_credentials['region'] = 'eu-west-1'
-    return dummy_credentials
+    return {
+        'boto_profile': None,
+        'aws_secret_key': "notasecret",
+        'aws_access_key': "notakey",
+        'aws_security_token': None,
+        'region': 'eu-west-1',
+    }
 
 
 simple_variable_success_response = {

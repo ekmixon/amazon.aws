@@ -912,10 +912,11 @@ def find_running_instances_by_count_tag(module, ec2, vpc, count_tag, zone=None):
     instances = []
     for res in reservations:
         if hasattr(res, 'instances'):
-            for inst in res.instances:
-                if inst.state == 'terminated' or inst.state == 'shutting-down':
-                    continue
-                instances.append(inst)
+            instances.extend(
+                inst
+                for inst in res.instances
+                if inst.state not in ['terminated', 'shutting-down']
+            )
 
     return reservations, instances
 
@@ -932,17 +933,17 @@ def _set_none_to_blank(dictionary):
 
 def get_reservations(module, ec2, vpc, tags=None, state=None, zone=None):
     # TODO: filters do not work with tags that have underscores
-    filters = dict()
+    filters = {}
 
     vpc_subnet_id = module.params.get('vpc_subnet_id')
     vpc_id = None
     if vpc_subnet_id:
-        filters.update({"subnet-id": vpc_subnet_id})
+        filters["subnet-id"] = vpc_subnet_id
         if vpc:
             vpc_id = vpc.get_all_subnets(subnet_ids=[vpc_subnet_id])[0].vpc_id
 
     if vpc_id:
-        filters.update({"vpc-id": vpc_id})
+        filters["vpc-id"] = vpc_id
 
     if tags is not None:
 
@@ -958,39 +959,37 @@ def get_reservations(module, ec2, vpc, tags=None, state=None, zone=None):
 
         # if string, we only care that a tag of that name exists
         if isinstance(tags, str):
-            filters.update({"tag-key": tags})
+            filters["tag-key"] = tags
 
         # if list, append each item to filters
         if isinstance(tags, list):
             for x in tags:
                 if isinstance(x, dict):
                     x = _set_none_to_blank(x)
-                    filters.update(dict(("tag:" + tn, tv) for (tn, tv) in x.items()))
+                    filters |= {f"tag:{tn}": tv for (tn, tv) in x.items()}
                 else:
-                    filters.update({"tag-key": x})
+                    filters["tag-key"] = x
 
         # if dict, add the key and value to the filter
         if isinstance(tags, dict):
             tags = _set_none_to_blank(tags)
-            filters.update(dict(("tag:" + tn, tv) for (tn, tv) in tags.items()))
+            filters.update({f"tag:{tn}": tv for (tn, tv) in tags.items()})
 
         # lets check to see if the filters dict is empty, if so then stop
         if not filters:
-            module.fail_json(msg="Filters based on tag is empty => tags: %s" % (tags))
+            module.fail_json(msg=f"Filters based on tag is empty => tags: {tags}")
 
     if state:
         # http://stackoverflow.com/questions/437511/what-are-the-valid-instancestates-for-the-amazon-ec2-api
-        filters.update({'instance-state-name': state})
+        filters['instance-state-name'] = state
 
     if zone:
-        filters.update({'availability-zone': zone})
+        filters['availability-zone'] = zone
 
     if module.params.get('id'):
         filters['client-token'] = module.params['id']
 
-    results = ec2.get_all_instances(filters=filters)
-
-    return results
+    return ec2.get_all_instances(filters=filters)
 
 
 def get_instance_info(inst):
@@ -998,30 +997,32 @@ def get_instance_info(inst):
     Retrieves instance information from an instance
     ID and returns it as a dictionary
     """
-    instance_info = {'id': inst.id,
-                     'ami_launch_index': inst.ami_launch_index,
-                     'private_ip': inst.private_ip_address,
-                     'private_dns_name': inst.private_dns_name,
-                     'public_ip': inst.ip_address,
-                     'dns_name': inst.dns_name,
-                     'public_dns_name': inst.public_dns_name,
-                     'state_code': inst.state_code,
-                     'architecture': inst.architecture,
-                     'image_id': inst.image_id,
-                     'key_name': inst.key_name,
-                     'placement': inst.placement,
-                     'region': inst.placement[:-1],
-                     'kernel': inst.kernel,
-                     'ramdisk': inst.ramdisk,
-                     'launch_time': inst.launch_time,
-                     'instance_type': inst.instance_type,
-                     'root_device_type': inst.root_device_type,
-                     'root_device_name': inst.root_device_name,
-                     'state': inst.state,
-                     'hypervisor': inst.hypervisor,
-                     'tags': inst.tags,
-                     'groups': dict((group.id, group.name) for group in inst.groups),
-                     }
+    instance_info = {
+        'id': inst.id,
+        'ami_launch_index': inst.ami_launch_index,
+        'private_ip': inst.private_ip_address,
+        'private_dns_name': inst.private_dns_name,
+        'public_ip': inst.ip_address,
+        'dns_name': inst.dns_name,
+        'public_dns_name': inst.public_dns_name,
+        'state_code': inst.state_code,
+        'architecture': inst.architecture,
+        'image_id': inst.image_id,
+        'key_name': inst.key_name,
+        'placement': inst.placement,
+        'region': inst.placement[:-1],
+        'kernel': inst.kernel,
+        'ramdisk': inst.ramdisk,
+        'launch_time': inst.launch_time,
+        'instance_type': inst.instance_type,
+        'root_device_type': inst.root_device_type,
+        'root_device_name': inst.root_device_name,
+        'state': inst.state,
+        'hypervisor': inst.hypervisor,
+        'tags': inst.tags,
+        'groups': {group.id: group.name for group in inst.groups},
+    }
+
     try:
         instance_info['virtualization_type'] = getattr(inst, 'virtualization_type')
     except AttributeError:
@@ -1033,14 +1034,18 @@ def get_instance_info(inst):
         instance_info['ebs_optimized'] = False
 
     try:
-        bdm_dict = {}
         bdm = getattr(inst, 'block_device_mapping')
-        for device_name in bdm.keys():
-            bdm_dict[device_name] = {
+        bdm_dict = {
+            device_name: {
                 'status': bdm[device_name].status,
                 'volume_id': bdm[device_name].volume_id,
-                'delete_on_termination': bdm[device_name].delete_on_termination
+                'delete_on_termination': bdm[
+                    device_name
+                ].delete_on_termination,
             }
+            for device_name in bdm.keys()
+        }
+
         instance_info['block_device_mapping'] = bdm_dict
     except AttributeError:
         instance_info['block_device_mapping'] = False
@@ -1096,26 +1101,28 @@ def boto_supports_volume_encryption():
 
 
 def create_block_device(module, ec2, volume):
-    # Not aware of a way to determine this programatically
-    # http://aws.amazon.com/about-aws/whats-new/2013/10/09/ebs-provisioned-iops-maximum-iops-gb-ratio-increased-to-30-1/
-    MAX_IOPS_TO_SIZE_RATIO = 30
-
     volume_type = volume.get('volume_type')
 
-    if 'snapshot' not in volume and 'ephemeral' not in volume:
-        if 'volume_size' not in volume:
-            module.fail_json(msg='Size must be specified when creating a new volume or modifying the root volume')
+    if (
+        'snapshot' not in volume
+        and 'ephemeral' not in volume
+        and 'volume_size' not in volume
+    ):
+        module.fail_json(msg='Size must be specified when creating a new volume or modifying the root volume')
     if 'snapshot' in volume:
         if volume_type == 'io1' and 'iops' not in volume:
             module.fail_json(msg='io1 volumes must have an iops value set')
         if 'iops' in volume:
             snapshot = ec2.get_all_snapshots(snapshot_ids=[volume['snapshot']])[0]
             size = volume.get('volume_size', snapshot.volume_size)
+            # Not aware of a way to determine this programatically
+            # http://aws.amazon.com/about-aws/whats-new/2013/10/09/ebs-provisioned-iops-maximum-iops-gb-ratio-increased-to-30-1/
+            MAX_IOPS_TO_SIZE_RATIO = 30
+
             if int(volume['iops']) > MAX_IOPS_TO_SIZE_RATIO * int(size):
                 module.fail_json(msg='IOPS must be at most %d times greater than size' % MAX_IOPS_TO_SIZE_RATIO)
-    if 'ephemeral' in volume:
-        if 'snapshot' in volume:
-            module.fail_json(msg='Cannot set both ephemeral and snapshot')
+    if 'ephemeral' in volume and 'snapshot' in volume:
+        module.fail_json(msg='Cannot set both ephemeral and snapshot')
     if boto_supports_volume_encryption():
         return BlockDeviceType(snapshot_id=volume.get('snapshot'),
                                ephemeral_name=volume.get('ephemeral'),
@@ -1161,7 +1168,7 @@ def await_spot_requests(module, ec2, spot_requests, count):
     spot_wait_timeout = int(module.params.get('spot_wait_timeout'))
     wait_complete = time.time() + spot_wait_timeout
 
-    spot_req_inst_ids = dict()
+    spot_req_inst_ids = {}
     while time.time() < wait_complete:
         reqs = ec2.get_all_spot_instance_requests()
         for sirb in spot_requests:
@@ -1177,10 +1184,15 @@ def await_spot_requests(module, ec2, spot_requests, count):
                 elif sir.state == 'active':
                     continue  # Instance is created already, nothing to do here
                 elif sir.state == 'failed':
-                    module.fail_json(msg="Spot instance request %s failed with status %s and fault %s:%s" % (
-                        sir.id, sir.status.code, sir.fault.code, sir.fault.message))
+                    module.fail_json(
+                        msg=f"Spot instance request {sir.id} failed with status {sir.status.code} and fault {sir.fault.code}:{sir.fault.message}"
+                    )
+
                 elif sir.state == 'cancelled':
-                    module.fail_json(msg="Spot instance request %s was cancelled before it could be fulfilled." % sir.id)
+                    module.fail_json(
+                        msg=f"Spot instance request {sir.id} was cancelled before it could be fulfilled."
+                    )
+
                 elif sir.state == 'closed':
                     # instance is terminating or marked for termination
                     # this may be intentional on the part of the operator,
@@ -1189,10 +1201,7 @@ def await_spot_requests(module, ec2, spot_requests, count):
                     # the module if the reason for the state is anything
                     # other than termination by user. Codes are documented at
                     # https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-bid-status.html
-                    if sir.status.code == 'instance-terminated-by-user':
-                        # do nothing, since the user likely did this on purpose
-                        pass
-                    else:
+                    if sir.status.code != 'instance-terminated-by-user':
                         spot_msg = "Spot instance request %s was closed by AWS with the status %s and fault %s:%s"
                         module.fail_json(msg=spot_msg % (sir.id, sir.status.code, sir.fault.code, sir.fault.message))
 
@@ -1200,7 +1209,7 @@ def await_spot_requests(module, ec2, spot_requests, count):
             time.sleep(5)
         else:
             return list(spot_req_inst_ids.values())
-    module.fail_json(msg="wait for spot requests timeout on %s" % time.asctime())
+    module.fail_json(msg=f"wait for spot requests timeout on {time.asctime()}")
 
 
 def enforce_count(module, ec2, vpc):
@@ -1237,7 +1246,7 @@ def enforce_count(module, ec2, vpc):
         to_remove = len(instances) - exact_count
         if not checkmode:
             all_instance_ids = sorted([x.id for x in instances])
-            remove_ids = all_instance_ids[0:to_remove]
+            remove_ids = all_instance_ids[:to_remove]
 
             instances = [x for x in instances if x.id not in remove_ids]
 

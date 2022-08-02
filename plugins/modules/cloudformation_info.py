@@ -199,7 +199,7 @@ class CloudFormationServiceManager:
         except is_boto3_error_message('does not exist'):
             return {}
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-            self.module.fail_json_aws(e, msg="Error describing stack " + stack_name)
+            self.module.fail_json_aws(e, msg=f"Error describing stack {stack_name}")
 
     @AWSRetry.exponential_backoff(retries=5, delay=5)
     def list_stack_resources_with_backoff(self, stack_name):
@@ -210,7 +210,9 @@ class CloudFormationServiceManager:
         try:
             return self.list_stack_resources_with_backoff(stack_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Error listing stack resources for stack " + stack_name)
+            self.module.fail_json_aws(
+                e, msg=f"Error listing stack resources for stack {stack_name}"
+            )
 
     @AWSRetry.exponential_backoff(retries=5, delay=5)
     def describe_stack_events_with_backoff(self, stack_name):
@@ -221,7 +223,9 @@ class CloudFormationServiceManager:
         try:
             return self.describe_stack_events_with_backoff(stack_name)
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Error listing stack events for stack " + stack_name)
+            self.module.fail_json_aws(
+                e, msg=f"Error listing stack events for stack {stack_name}"
+            )
 
     @AWSRetry.exponential_backoff(retries=5, delay=5)
     def list_stack_change_sets_with_backoff(self, stack_name):
@@ -237,13 +241,18 @@ class CloudFormationServiceManager:
         changes = []
         try:
             change_sets = self.list_stack_change_sets_with_backoff(stack_name)
-            for item in change_sets:
-                changes.append(self.describe_stack_change_set_with_backoff(
-                               StackName=stack_name,
-                               ChangeSetName=item['ChangeSetName']))
+            changes.extend(
+                self.describe_stack_change_set_with_backoff(
+                    StackName=stack_name, ChangeSetName=item['ChangeSetName']
+                )
+                for item in change_sets
+            )
+
             return changes
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Error describing stack change sets for stack " + stack_name)
+            self.module.fail_json_aws(
+                e, msg=f"Error describing stack change sets for stack {stack_name}"
+            )
 
     @AWSRetry.exponential_backoff(retries=5, delay=5)
     def get_stack_policy_with_backoff(self, stack_name):
@@ -252,12 +261,13 @@ class CloudFormationServiceManager:
     def get_stack_policy(self, stack_name):
         try:
             response = self.get_stack_policy_with_backoff(stack_name)
-            stack_policy = response.get('StackPolicyBody')
-            if stack_policy:
+            if stack_policy := response.get('StackPolicyBody'):
                 return json.loads(stack_policy)
-            return dict()
+            return {}
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Error getting stack policy for stack " + stack_name)
+            self.module.fail_json_aws(
+                e, msg=f"Error getting stack policy for stack {stack_name}"
+            )
 
     @AWSRetry.exponential_backoff(retries=5, delay=5)
     def get_template_with_backoff(self, stack_name):
@@ -268,7 +278,9 @@ class CloudFormationServiceManager:
             response = self.get_template_with_backoff(stack_name)
             return response.get('TemplateBody')
         except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-            self.module.fail_json_aws(e, msg="Error getting stack template for stack " + stack_name)
+            self.module.fail_json_aws(
+                e, msg=f"Error getting stack template for stack {stack_name}"
+            )
 
 
 def to_dict(items, key, value):
@@ -276,12 +288,12 @@ def to_dict(items, key, value):
     if items:
         return dict(zip([i.get(key) for i in items], [i.get(value) for i in items]))
     else:
-        return dict()
+        return {}
 
 
 def main():
     argument_spec = dict(
-        stack_name=dict(),
+        stack_name={},
         all_facts=dict(required=False, default=False, type='bool'),
         stack_policy=dict(required=False, default=False, type='bool'),
         stack_events=dict(required=False, default=False, type='bool'),
@@ -289,6 +301,7 @@ def main():
         stack_template=dict(required=False, default=False, type='bool'),
         stack_change_sets=dict(required=False, default=False, type='bool'),
     )
+
     module = AnsibleAWSModule(argument_spec=argument_spec, supports_check_mode=True)
 
     is_old_facts = module._name == 'cloudformation_facts'

@@ -170,9 +170,11 @@ def _get_most_recent_snapshot(snapshots, max_snapshot_age_secs=None, now=None):
     snapshot_start = youngest_snapshot['StartTime']
     snapshot_age = now - snapshot_start
 
-    if max_snapshot_age_secs is not None:
-        if snapshot_age.total_seconds() > max_snapshot_age_secs:
-            return None
+    if (
+        max_snapshot_age_secs is not None
+        and snapshot_age.total_seconds() > max_snapshot_age_secs
+    ):
+        return None
 
     return youngest_snapshot
 
@@ -197,8 +199,7 @@ def get_volume_by_instance(module, ec2, device_name, instance_id):
             )
         )
 
-    volume = volumes[0]
-    return volume
+    return volumes[0]
 
 
 def get_volume_by_id(module, ec2, volume):
@@ -273,11 +274,11 @@ def create_snapshot(module, ec2, description=None, wait=None,
     if snapshot is None:
         volume_tags = boto3_tag_list_to_ansible_dict(volume['Tags'])
         volume_name = volume_tags.get('Name')
-        _tags = dict()
+        _tags = {}
         if volume_name:
             _tags['Name'] = volume_name
         if snapshot_tags:
-            _tags.update(snapshot_tags)
+            _tags |= snapshot_tags
 
         params = {'VolumeId': volume_id}
         if description:
@@ -334,17 +335,18 @@ def delete_snapshot(module, ec2, snapshot_id):
 
 def create_snapshot_ansible_module():
     argument_spec = dict(
-        volume_id=dict(),
-        description=dict(),
-        instance_id=dict(),
-        snapshot_id=dict(),
-        device_name=dict(),
+        volume_id={},
+        description={},
+        instance_id={},
+        snapshot_id={},
+        device_name={},
         wait=dict(type='bool', default=True),
         wait_timeout=dict(type='int', default=600),
         last_snapshot_min_age=dict(type='int', default=0),
-        snapshot_tags=dict(type='dict', default=dict()),
+        snapshot_tags=dict(type='dict', default={}),
         state=dict(choices=['absent', 'present'], default='present'),
     )
+
     mutually_exclusive = [
         ('instance_id', 'snapshot_id', 'volume_id'),
     ]
@@ -358,15 +360,13 @@ def create_snapshot_ansible_module():
         ('instance_id', 'device_name'),
     ]
 
-    module = AnsibleAWSModule(
+    return AnsibleAWSModule(
         argument_spec=argument_spec,
         mutually_exclusive=mutually_exclusive,
         required_if=required_if,
         required_one_of=required_one_of,
         required_together=required_together,
     )
-
-    return module
 
 
 def main():

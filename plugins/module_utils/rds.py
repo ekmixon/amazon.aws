@@ -152,7 +152,7 @@ def wait_for_instance_status(client, module, db_instance_id, waiter_name):
         extra_retry_codes = ['DBInstanceNotFound']
     else:
         extra_retry_codes = []
-    for attempt_to_wait in range(0, 10):
+    for attempt_to_wait in range(10):
         try:
             wait(client, db_instance_id, waiter_name, extra_retry_codes)
             break

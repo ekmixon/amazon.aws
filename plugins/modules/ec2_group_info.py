@@ -116,7 +116,7 @@ def main():
 
     # Replace filter key underscores with dashes, for compatibility, except if we're dealing with tags
     filters = module.params.get("filters")
-    sanitized_filters = dict()
+    sanitized_filters = {}
 
     for key in filters:
         if key.startswith("tag:"):

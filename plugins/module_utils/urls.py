@@ -36,11 +36,11 @@ def format_querystring(params=None):
     It's specially sorted for cannonical requests
     """
 
-    if not params:
-        return ""
-
-    # Query string values must be URL-encoded (space=%20). The parameters must be sorted by name.
-    return urlencode(sorted(params.items(), operator.itemgetter(0)))
+    return (
+        urlencode(sorted(params.items(), operator.itemgetter(0)))
+        if params
+        else ""
+    )
 
 
 # Key derivation functions. See:
@@ -58,11 +58,10 @@ def get_signature_key(key, dateStamp, regionName, serviceName):
     Returns signature key for AWS resource
     '''
 
-    kDate = sign(("AWS4" + key).encode("utf-8"), dateStamp)
+    kDate = sign(f"AWS4{key}".encode("utf-8"), dateStamp)
     kRegion = sign(kDate, regionName)
     kService = sign(kRegion, serviceName)
-    kSigning = sign(kService, "aws4_request")
-    return kSigning
+    return sign(kService, "aws4_request")
 
 
 def get_aws_credentials_object(module):
@@ -144,8 +143,8 @@ def signed_request(
     uri = uri or "/"
     query_string = format_querystring(query) if query else ""
 
-    headers = headers or dict()
-    query = query or dict()
+    headers = headers or {}
+    query = query or {}
 
     headers.update({
         "host": host,
@@ -169,9 +168,16 @@ def signed_request(
 
     # Setup Cannonical request to generate auth token
 
-    cannonical_headers = "\n".join([
-        key.lower().strip() + ":" + value for key, value in headers.items()
-    ]) + "\n"  # Note additional trailing newline
+    cannonical_headers = (
+        "\n".join(
+            [
+                f"{key.lower().strip()}:{value}"
+                for key, value in headers.items()
+            ]
+        )
+        + "\n"
+    )
+
 
     cannonical_request = "\n".join([
         method,
@@ -197,16 +203,16 @@ def signed_request(
 
     # PERFORM THE REQUEST!
 
-    url = "https://" + host + uri
+    url = f"https://{host}{uri}"
 
     if query_string != "":
-        url = url + "?" + query_string
+        url = f"{url}?{query_string}"
 
     final_headers = {
         "x-amz-date": amz_date,
         "Authorization": authorization_header,
     }
 
-    final_headers.update(headers)
+    final_headers |= headers
 
     return open_url(url, method=method, data=body, headers=final_headers)

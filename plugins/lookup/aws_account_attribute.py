@@ -84,10 +84,12 @@ def _boto3_conn(region, credentials):
 
 
 def _get_credentials(options):
-    credentials = {}
-    credentials['aws_profile'] = options['aws_profile']
-    credentials['aws_secret_access_key'] = options['aws_secret_key']
-    credentials['aws_access_key_id'] = options['aws_access_key']
+    credentials = {
+        'aws_profile': options['aws_profile'],
+        'aws_secret_access_key': options['aws_secret_key'],
+        'aws_access_key_id': options['aws_access_key'],
+    }
+
     if options['aws_security_token']:
         credentials['aws_session_token'] = options['aws_security_token']
 
@@ -114,7 +116,7 @@ class LookupModule(LookupBase):
         attribute = kwargs.get('attribute')
         params = {'AttributeNames': []}
         check_ec2_classic = False
-        if 'has-ec2-classic' == attribute:
+        if attribute == 'has-ec2-classic':
             check_ec2_classic = True
             params['AttributeNames'] = ['supported-platforms']
         elif attribute:
@@ -123,7 +125,7 @@ class LookupModule(LookupBase):
         try:
             response = _describe_account_attributes(client, **params)['AccountAttributes']
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-            raise AnsibleError("Failed to describe account attributes: %s" % to_native(e))
+            raise AnsibleError(f"Failed to describe account attributes: {to_native(e)}")
 
         if check_ec2_classic:
             attr = response[0]
@@ -133,7 +135,9 @@ class LookupModule(LookupBase):
             attr = response[0]
             return [value['AttributeValue'] for value in attr['AttributeValues']]
 
-        flattened = {}
-        for k_v_dict in response:
-            flattened[k_v_dict['AttributeName']] = [value['AttributeValue'] for value in k_v_dict['AttributeValues']]
-        return flattened
+        return {
+            k_v_dict['AttributeName']: [
+                value['AttributeValue'] for value in k_v_dict['AttributeValues']
+            ]
+            for k_v_dict in response
+        }

@@ -50,7 +50,7 @@ class ElBV2UtilsTestSuite(unittest.TestCase):
         self.connection = MagicMock(name="connection")
         self.module = MagicMock(name="module")
 
-        self.module.params = dict()
+        self.module.params = {}
 
         self.conn_paginator = MagicMock(name="connection.paginator")
         self.paginate = MagicMock(name="paginator.paginate")

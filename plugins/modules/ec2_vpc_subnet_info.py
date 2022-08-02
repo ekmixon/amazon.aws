@@ -186,7 +186,7 @@ def describe_subnets(connection, module):
         subnet_ids = []
 
     # init empty list for return vars
-    subnet_info = list()
+    subnet_info = []
 
     # Get the basic VPC info
     try:

@@ -87,9 +87,7 @@ def _botocore_exception_maybe():
     Allow for boto3 not being installed when using these utils by wrapping
     botocore.exceptions instead of assigning from it directly.
     """
-    if HAS_BOTO3:
-        return botocore.exceptions.ClientError
-    return type(None)
+    return botocore.exceptions.ClientError if HAS_BOTO3 else type(None)
 
 
 class AWSRetry(CloudRetry):
@@ -178,13 +176,11 @@ def boto_exception(err):
     :return: Error message
     """
     if hasattr(err, 'error_message'):
-        error = err.error_message
+        return err.error_message
     elif hasattr(err, 'message'):
-        error = str(err.message) + ' ' + str(err) + ' - ' + str(type(err))
+        return f'{str(err.message)} {str(err)} - {str(type(err))}'
     else:
-        error = '%s: %s' % (Exception, err)
-
-    return error
+        return f'{Exception}: {err}'
 
 
 def aws_common_argument_spec():
@@ -212,9 +208,7 @@ def ec2_argument_spec():
 
 
 def get_aws_region(module, boto3=False):
-    region = module.params.get('region')
-
-    if region:
+    if region := module.params.get('region'):
         return region
 
     if 'AWS_REGION' in os.environ:
@@ -227,9 +221,7 @@ def get_aws_region(module, boto3=False):
     if not boto3:
         if not HAS_BOTO:
             module.fail_json(msg=missing_required_lib('boto'), exception=BOTO_IMP_ERR)
-        # boto.config.get returns None if config not found
-        region = boto.config.get('Boto', 'aws_region')
-        if region:
+        if region := boto.config.get('Boto', 'aws_region'):
             return region
         return boto.config.get('Boto', 'ec2_region')
 
@@ -324,9 +316,8 @@ def get_aws_connection_info(module, boto3=False):
             # in case secret_token came in as empty string
             security_token = None
 
-    if not ca_bundle:
-        if os.environ.get('AWS_CA_BUNDLE'):
-            ca_bundle = os.environ.get('AWS_CA_BUNDLE')
+    if not ca_bundle and os.environ.get('AWS_CA_BUNDLE'):
+        ca_bundle = os.environ.get('AWS_CA_BUNDLE')
 
     if HAS_BOTO3 and boto3:
         boto_params = dict(aws_access_key_id=access_key,
@@ -376,7 +367,7 @@ def get_ec2_creds(module):
 
 def boto_fix_security_token_in_profile(conn, profile_name):
     ''' monkey patch for boto issue boto/boto#2100 '''
-    profile = 'profile ' + profile_name
+    profile = f'profile {profile_name}'
     if boto.config.has_option(profile, 'aws_security_token'):
         conn.provider.set_security_token(boto.config.get(profile, 'aws_security_token'))
     return conn
@@ -392,7 +383,10 @@ def connect_to_aws(aws_module, region, **params):
             raise AnsibleAWSError("Region %s does not seem to be available for aws module %s. If the region definitely exists, you may need to upgrade "
                                   "boto or extend with endpoints_path" % (region, aws_module.__name__))
         else:
-            raise AnsibleAWSError("Unknown problem connecting to region %s for aws module %s." % (region, aws_module.__name__))
+            raise AnsibleAWSError(
+                f"Unknown problem connecting to region {region} for aws module {aws_module.__name__}."
+            )
+
     if params.get('profile_name'):
         conn = boto_fix_security_token_in_profile(conn, params['profile_name'])
     return conn
@@ -491,11 +485,11 @@ def boto3_tag_list_to_ansible_dict(tags_list, tag_name_key_name=None, tag_value_
         tag_candidates = {'key': 'value', 'Key': 'Value'}
 
     # minio seems to return [{}] as an empty tags_list
-    if not tags_list or not any(tag for tag in tags_list):
+    if not tags_list or not any(tags_list):
         return {}
     for k, v in tag_candidates.items():
         if k in tags_list[0] and v in tags_list[0]:
-            return dict((tag[k], tag[v]) for tag in tags_list)
+            return {tag[k]: tag[v] for tag in tags_list}
     raise ValueError("Couldn't find tag key (candidates %s) in tag list %s" % (str(tag_candidates), str(tags_list)))
 
 
@@ -522,11 +516,10 @@ def ansible_dict_to_boto3_tag_list(tags_dict, tag_name_key_name='Key', tag_value
         ]
     """
 
-    tags_list = []
-    for k, v in tags_dict.items():
-        tags_list.append({tag_name_key_name: k, tag_value_key_name: to_native(v)})
-
-    return tags_list
+    return [
+        {tag_name_key_name: k, tag_value_key_name: to_native(v)}
+        for k, v in tags_dict.items()
+    ]
 
 
 def get_ec2_security_group_ids_from_names(sec_group_list, ec2_connection, vpc_id=None, boto3=True):
@@ -539,17 +532,11 @@ def get_ec2_security_group_ids_from_names(sec_group_list, ec2_connection, vpc_id
 
     def get_sg_name(sg, boto3):
 
-        if boto3:
-            return sg['GroupName']
-        else:
-            return sg.name
+        return sg['GroupName'] if boto3 else sg.name
 
     def get_sg_id(sg, boto3):
 
-        if boto3:
-            return sg['GroupId']
-        else:
-            return sg.id
+        return sg['GroupId'] if boto3 else sg.id
 
     sec_group_id_list = []
 
@@ -580,12 +567,15 @@ def get_ec2_security_group_ids_from_names(sec_group_list, ec2_connection, vpc_id
     unmatched = set(sec_group_list).difference(str(get_sg_name(all_sg, boto3)) for all_sg in all_sec_groups)
     sec_group_name_list = list(set(sec_group_list) - set(unmatched))
 
-    if len(unmatched) > 0:
+    if unmatched:
         # If we have unmatched names that look like an ID, assume they are
         sec_group_id_list[:] = [sg for sg in unmatched if re.match('sg-[a-fA-F0-9]+$', sg)]
         still_unmatched = [sg for sg in unmatched if not re.match('sg-[a-fA-F0-9]+$', sg)]
-        if len(still_unmatched) > 0:
-            raise ValueError("The following group names are not valid: %s" % ', '.join(still_unmatched))
+        if still_unmatched:
+            raise ValueError(
+                f"The following group names are not valid: {', '.join(still_unmatched)}"
+            )
+
 
     sec_group_id_list += [str(get_sg_id(all_sg, boto3)) for all_sg in all_sec_groups if str(get_sg_name(all_sg, boto3)) in sec_group_name_list]
 
@@ -613,9 +603,9 @@ def _hashable_policy(policy, policy_list):
     """
     # Amazon will automatically convert bool and int to strings for us
     if isinstance(policy, bool):
-        return tuple([str(policy).lower()])
+        return (str(policy).lower(), )
     elif isinstance(policy, int):
-        return tuple([str(policy)])
+        return (str(policy), )
 
     if isinstance(policy, list):
         for each in policy:
@@ -623,20 +613,17 @@ def _hashable_policy(policy, policy_list):
             if isinstance(tupleified, list):
                 tupleified = tuple(tupleified)
             policy_list.append(tupleified)
-    elif isinstance(policy, string_types) or isinstance(policy, binary_type):
+    elif isinstance(policy, (string_types, binary_type)):
         policy = to_text(policy)
         # convert root account ARNs to just account IDs
         if policy.startswith('arn:aws:iam::') and policy.endswith(':root'):
             policy = policy.split(':')[4]
         return [policy]
     elif isinstance(policy, dict):
-        sorted_keys = list(policy.keys())
-        sorted_keys.sort()
+        sorted_keys = sorted(policy.keys())
         for key in sorted_keys:
             element = policy[key]
-            # Special case defined in
-            # https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html
-            if key in ["NotPrincipal", "Principal"] and policy[key] == "*":
+            if key in ["NotPrincipal", "Principal"] and element == "*":
                 element = {"AWS": "*"}
             tupleified = _hashable_policy(element, [])
             if isinstance(tupleified, list):
@@ -759,17 +746,16 @@ def map_complex_type(complex_type, type_map):
     new_type = type(complex_type)()
     if isinstance(complex_type, dict):
         for key in complex_type:
-            if key in type_map:
-                if isinstance(type_map[key], list):
-                    new_type[key] = map_complex_type(
-                        complex_type[key],
-                        type_map[key][0])
-                else:
-                    new_type[key] = map_complex_type(
-                        complex_type[key],
-                        type_map[key])
-            else:
+            if key not in type_map:
                 return complex_type
+            if isinstance(type_map[key], list):
+                new_type[key] = map_complex_type(
+                    complex_type[key],
+                    type_map[key][0])
+            else:
+                new_type[key] = map_complex_type(
+                    complex_type[key],
+                    type_map[key])
     elif isinstance(complex_type, list):
         for i in range(len(complex_type)):
             new_type.append(map_complex_type(
@@ -793,16 +779,18 @@ def compare_aws_tags(current_tags_dict, new_tags_dict, purge_tags=True):
     :return: tag_keys_to_unset: a list of key names (type str) that need to be unset in AWS. If no tags need to be unset this list will be empty
     """
 
-    tag_key_value_pairs_to_set = {}
-    tag_keys_to_unset = []
+    tag_keys_to_unset = [
+        key
+        for key in current_tags_dict.keys()
+        if key not in new_tags_dict and purge_tags
+    ]
 
-    for key in current_tags_dict.keys():
-        if key not in new_tags_dict and purge_tags:
-            tag_keys_to_unset.append(key)
 
-    for key in set(new_tags_dict.keys()) - set(tag_keys_to_unset):
-        if to_text(new_tags_dict[key]) != current_tags_dict.get(key):
-            tag_key_value_pairs_to_set[key] = new_tags_dict[key]
+    tag_key_value_pairs_to_set = {
+        key: new_tags_dict[key]
+        for key in set(new_tags_dict.keys()) - set(tag_keys_to_unset)
+        if to_text(new_tags_dict[key]) != current_tags_dict.get(key)
+    }
 
     return tag_key_value_pairs_to_set, tag_keys_to_unset
 

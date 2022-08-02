@@ -159,7 +159,7 @@ def get_key_fingerprint(module, ec2_client, key_material):
     # find an unused name
     name_in_use = True
     while name_in_use:
-        random_name = "ansible-" + str(uuid.uuid4())
+        random_name = f"ansible-{str(uuid.uuid4())}"
         name_in_use = find_key_pair(module, ec2_client, random_name)
 
     temp_key = import_key_pair(module, ec2_client, random_name, key_material)
@@ -182,8 +182,7 @@ def find_key_pair(module, ec2_client, name):
 
 def create_key_pair(module, ec2_client, name, key_material, force):
 
-    key = find_key_pair(module, ec2_client, name)
-    if key:
+    if key := find_key_pair(module, ec2_client, name):
         if key_material and force:
             if not module.check_mode:
                 new_fingerprint = get_key_fingerprint(module, ec2_client, key_material)

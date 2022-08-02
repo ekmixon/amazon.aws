@@ -545,9 +545,10 @@ def _inject_limit_retries(model):
         'InternalFailure', 'InternalError', 'TooManyRequestsException',
         'Throttling']
 
-    acceptors = []
-    for error in extra_retries:
-        acceptors.append({"state": "success", "matcher": "error", "expected": error})
+    acceptors = [
+        {"state": "success", "matcher": "error", "expected": error}
+        for error in extra_retries
+    ]
 
     _model = copy.deepcopy(model)
 

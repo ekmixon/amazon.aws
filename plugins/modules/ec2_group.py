@@ -433,7 +433,7 @@ from ..module_utils.waiters import get_waiter
 
 
 Rule = namedtuple('Rule', ['port_range', 'protocol', 'target', 'target_type', 'description'])
-valid_targets = set(['ipv4', 'ipv6', 'group', 'ip_prefix'])
+valid_targets = {'ipv4', 'ipv6', 'group', 'ip_prefix'}
 current_account_id = None
 
 
@@ -595,7 +595,7 @@ def validate_rule(module, rule):
                     'group_id', 'group_name', 'group_desc',
                     'proto', 'from_port', 'to_port', 'rule_desc')
     if not isinstance(rule, dict):
-        module.fail_json(msg='Invalid rule parameter type [%s].' % type(rule))
+        module.fail_json(msg=f'Invalid rule parameter type [{type(rule)}].')
     for k in rule:
         if k not in VALID_PARAMS:
             module.fail_json(msg='Invalid rule parameter \'{0}\' for rule: {1}'.format(k, rule))
@@ -665,7 +665,11 @@ def get_target_from_rule(module, client, rule, name, group, groups, vpc_id):
         elif group_name in groups and group.get('VpcId') and groups[group_name].get('VpcId'):
             # both are VPC groups, this is ok
             group_id = groups[group_name]['GroupId']
-        elif group_name in groups and not (group.get('VpcId') or groups[group_name].get('VpcId')):
+        elif (
+            group_name in groups
+            and not group.get('VpcId')
+            and not groups[group_name].get('VpcId')
+        ):
             # both are EC2 classic, this is ok
             group_id = groups[group_name]['GroupId']
         else:
@@ -762,11 +766,15 @@ def rule_expand_ports(rule):
 
 def rules_expand_ports(rules):
     # takes a list of rules and expands it based on 'ports'
-    if not rules:
-        return rules
-
-    return [rule for rule_complex in rules
-            for rule in rule_expand_ports(rule_complex)]
+    return (
+        [
+            rule
+            for rule_complex in rules
+            for rule in rule_expand_ports(rule_complex)
+        ]
+        if rules
+        else rules
+    )
 
 
 def rule_expand_source(rule, source_type):
@@ -795,11 +803,15 @@ def rule_expand_sources(rule):
 
 def rules_expand_sources(rules):
     # takes a list of rules and expands it based on 'cidr_ip', 'group_id', 'group_name'
-    if not rules:
-        return rules
-
-    return [rule for rule_complex in rules
-            for rule in rule_expand_sources(rule_complex)]
+    return (
+        [
+            rule
+            for rule_complex in rules
+            for rule in rule_expand_sources(rule_complex)
+        ]
+        if rules
+        else rules
+    )
 
 
 def update_rules_description(module, client, rule_type, group_id, ip_permissions):
@@ -813,7 +825,9 @@ def update_rules_description(module, client, rule_type, group_id, ip_permissions
             client.update_security_group_rule_descriptions_egress(
                 aws_retry=True, GroupId=group_id, IpPermissions=ip_permissions)
     except (ClientError, BotoCoreError) as e:
-        module.fail_json_aws(e, msg="Unable to update rule description for group %s" % group_id)
+        module.fail_json_aws(
+            e, msg=f"Unable to update rule description for group {group_id}"
+        )
 
 
 def fix_port_and_protocol(permission):
@@ -895,7 +909,7 @@ def validate_ip(module, cidr_ip):
             except ValueError:
                 # If a host bit is set on something other than a /128, IPv6Network will throw a ValueError
                 # The ipv6_cidr in this case probably looks like "2001:DB8:A0B:12F0::1/64" and we just want the network bits
-                ip6 = to_ipv6_subnet(split_addr[0]) + "/" + split_addr[1]
+                ip6 = f"{to_ipv6_subnet(split_addr[0])}/{split_addr[1]}"
                 if ip6 != cidr_ip:
                     module.warn("One of your IPv6 CIDR addresses ({0}) has host bits set. To get rid of this warning, "
                                 "check the network mask and make sure that only network bits are set: {1}.".format(cidr_ip, ip6))
@@ -950,28 +964,26 @@ def update_rule_descriptions(module, client, group_id, present_ingress, named_tu
 
 
 def create_security_group(client, module, name, description, vpc_id):
-    if not module.check_mode:
-        params = dict(GroupName=name, Description=description)
-        if vpc_id:
-            params['VpcId'] = vpc_id
-        try:
-            group = client.create_security_group(aws_retry=True, **params)
-        except (BotoCoreError, ClientError) as e:
-            module.fail_json_aws(e, msg="Unable to create security group")
+    if module.check_mode:
+        return None
+    params = dict(GroupName=name, Description=description)
+    if vpc_id:
+        params['VpcId'] = vpc_id
+    try:
+        group = client.create_security_group(aws_retry=True, **params)
+    except (BotoCoreError, ClientError) as e:
+        module.fail_json_aws(e, msg="Unable to create security group")
         # When a group is created, an egress_rule ALLOW ALL
         # to 0.0.0.0/0 is added automatically but it's not
         # reflected in the object returned by the AWS API
         # call. We re-read the group for getting an updated object
         # amazon sometimes takes a couple seconds to update the security group so wait till it exists
-        while True:
-            sleep(3)
-            group = get_security_groups_with_backoff(client, GroupIds=[group['GroupId']])['SecurityGroups'][0]
-            if group.get('VpcId') and not group.get('IpPermissionsEgress'):
-                pass
-            else:
-                break
-        return group
-    return None
+    while True:
+        sleep(3)
+        group = get_security_groups_with_backoff(client, GroupIds=[group['GroupId']])['SecurityGroups'][0]
+        if not group.get('VpcId') or group.get('IpPermissionsEgress'):
+            break
+    return group
 
 
 def wait_for_rule_propagation(module, client, group, desired_ingress, desired_egress, purge_ingress, purge_egress):
@@ -980,7 +992,16 @@ def wait_for_rule_propagation(module, client, group, desired_ingress, desired_eg
 
     def await_rules(group, desired_rules, purge, rule_key):
         for i in range(tries):
-            current_rules = set(sum([list(rule_from_group_permission(p)) for p in group[rule_key]], []))
+            current_rules = set(
+                sum(
+                    (
+                        list(rule_from_group_permission(p))
+                        for p in group[rule_key]
+                    ),
+                    [],
+                )
+            )
+
             if purge and len(current_rules ^ set(desired_rules)) == 0:
                 return group
             elif purge:
@@ -1024,11 +1045,18 @@ def group_exists(client, module, vpc_id, group_id, name):
         module.fail_json_aws(e, msg="Error in describe_security_groups")
 
     if security_groups:
-        groups = dict((group['GroupId'], group) for group in all_groups)
-        groups.update(dict((group['GroupName'], group) for group in all_groups))
+        groups = {group['GroupId']: group for group in all_groups} | {
+            group['GroupName']: group for group in all_groups
+        }
+
         if vpc_id:
-            vpc_wins = dict((group['GroupName'], group) for group in all_groups if group.get('VpcId') and group['VpcId'] == vpc_id)
-            groups.update(vpc_wins)
+            vpc_wins = {
+                group['GroupName']: group
+                for group in all_groups
+                if group.get('VpcId') and group['VpcId'] == vpc_id
+            }
+
+            groups |= vpc_wins
         # maintain backwards compatibility by using the last matching group
         return security_groups[-1], groups
     return None, {}
@@ -1046,18 +1074,25 @@ def get_diff_final_resource(client, module, security_group):
         if specified_tags is None:
             return security_group_tags
         tags_need_modify, tags_to_delete = compare_aws_tags(security_group_tags, specified_tags, purge_tags)
-        end_result_tags = dict((k, v) for k, v in specified_tags.items() if k not in tags_to_delete)
-        end_result_tags.update(dict((k, v) for k, v in security_group_tags.items() if k not in tags_to_delete))
+        end_result_tags = {
+            k: v for k, v in specified_tags.items() if k not in tags_to_delete
+        }
+
+        end_result_tags.update(
+            {
+                k: v
+                for k, v in security_group_tags.items()
+                if k not in tags_to_delete
+            }
+        )
+
         end_result_tags.update(tags_need_modify)
         return end_result_tags
 
     def get_final_rules(client, module, security_group_rules, specified_rules, purge_rules):
         if specified_rules is None:
             return security_group_rules
-        if purge_rules:
-            final_rules = []
-        else:
-            final_rules = list(security_group_rules)
+        final_rules = [] if purge_rules else list(security_group_rules)
         specified_rules = flatten_nested_targets(module, deepcopy(specified_rules))
         for rule in specified_rules:
             format_rule = {
@@ -1069,7 +1104,9 @@ def get_diff_final_resource(client, module, security_group):
                 format_rule.pop('from_port')
                 format_rule.pop('to_port')
             elif rule.get('ports'):
-                if rule.get('ports') and (isinstance(rule['ports'], string_types) or isinstance(rule['ports'], int)):
+                if rule.get('ports') and isinstance(
+                    rule['ports'], (string_types, int)
+                ):
                     rule['ports'] = [rule['ports']]
                 for port in rule.get('ports'):
                     if isinstance(port, string_types) and '-' in port:
@@ -1106,6 +1143,7 @@ def get_diff_final_resource(client, module, security_group):
             # Order final rules consistently
             final_rules.sort(key=get_ip_permissions_sort_key)
         return final_rules
+
     security_group_ingress = security_group.get('ip_permissions', [])
     specified_ingress = module.params['rules']
     purge_ingress = module.params['purge_rules']
@@ -1127,8 +1165,7 @@ def flatten_nested_targets(module, rules):
     def _flatten(targets):
         for target in targets:
             if isinstance(target, list):
-                for t in _flatten(target):
-                    yield t
+                yield from _flatten(target)
             elif isinstance(target, string_types):
                 yield target
 

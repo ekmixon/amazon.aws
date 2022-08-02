@@ -387,9 +387,16 @@ def key_check(module, s3, bucket, obj, version=None, validate=True):
         return False
     except is_boto3_error_code('403') as e:  # pylint: disable=duplicate-except
         if validate is True:
-            module.fail_json_aws(e, msg="Failed while looking up object (during key check) %s." % obj)
+            module.fail_json_aws(
+                e,
+                msg=f"Failed while looking up object (during key check) {obj}.",
+            )
+
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while looking up object (during key check) %s." % obj)
+        module.fail_json_aws(
+            e, msg=f"Failed while looking up object (during key check) {obj}."
+        )
+
 
     return True
 
@@ -409,25 +416,30 @@ def get_etag(s3, bucket, obj, version=None):
         key_check = s3.head_object(Bucket=bucket, Key=obj, VersionId=version)
     else:
         key_check = s3.head_object(Bucket=bucket, Key=obj)
-    if not key_check:
-        return None
-    return key_check['ETag']
+    return key_check['ETag'] if key_check else None
 
 
 def bucket_check(module, s3, bucket, validate=True):
-    exists = True
     try:
         s3.head_bucket(Bucket=bucket)
     except is_boto3_error_code('404'):
         return False
     except is_boto3_error_code('403') as e:  # pylint: disable=duplicate-except
         if validate is True:
-            module.fail_json_aws(e, msg="Failed while looking up bucket (during bucket_check) %s." % bucket)
+            module.fail_json_aws(
+                e,
+                msg=f"Failed while looking up bucket (during bucket_check) {bucket}.",
+            )
+
     except botocore.exceptions.EndpointConnectionError as e:  # pylint: disable=duplicate-except
         module.fail_json_aws(e, msg="Invalid endpoint provided")
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while looking up bucket (during bucket_check) %s." % bucket)
-    return exists
+        module.fail_json_aws(
+            e,
+            msg=f"Failed while looking up bucket (during bucket_check) {bucket}.",
+        )
+
+    return True
 
 
 def create_bucket(module, s3, bucket, location=None):
@@ -437,7 +449,7 @@ def create_bucket(module, s3, bucket, location=None):
     if location not in ('us-east-1', None):
         configuration['LocationConstraint'] = location
     try:
-        if len(configuration) > 0:
+        if configuration:
             s3.create_bucket(Bucket=bucket, CreateBucketConfiguration=configuration)
         else:
             s3.create_bucket(Bucket=bucket)
@@ -502,7 +514,7 @@ def delete_bucket(module, s3, bucket):
     except is_boto3_error_code('NoSuchBucket'):
         return False
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while deleting bucket %s." % bucket)
+        module.fail_json_aws(e, msg=f"Failed while deleting bucket {bucket}.")
 
 
 def delete_key(module, s3, bucket, obj):
@@ -510,9 +522,9 @@ def delete_key(module, s3, bucket, obj):
         module.exit_json(msg="DELETE operation skipped - running in check mode", changed=True)
     try:
         s3.delete_object(Bucket=bucket, Key=obj)
-        module.exit_json(msg="Object deleted from bucket %s." % (bucket), changed=True)
+        module.exit_json(msg=f"Object deleted from bucket {bucket}.", changed=True)
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-        module.fail_json_aws(e, msg="Failed while trying to delete %s." % obj)
+        module.fail_json_aws(e, msg=f"Failed while trying to delete {obj}.")
 
 
 def create_dirkey(module, s3, bucket, obj, encrypt, expiry):
@@ -531,7 +543,7 @@ def create_dirkey(module, s3, bucket, obj, encrypt, expiry):
     except is_boto3_error_code(IGNORE_S3_DROP_IN_EXCEPTIONS):
         module.warn("PutObjectAcl is not implemented by your storage provider. Set the permissions parameters to the empty list to avoid this warning")
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while creating object %s." % obj)
+        module.fail_json_aws(e, msg=f"Failed while creating object {obj}.")
 
     # Tags
     tags, changed = ensure_tags(s3, module, bucket, obj)
@@ -545,14 +557,16 @@ def create_dirkey(module, s3, bucket, obj, encrypt, expiry):
 
     url = put_download_url(module, s3, bucket, obj, expiry)
 
-    module.exit_json(msg="Virtual directory %s created in bucket %s" % (obj, bucket), url=url, tags=tags, changed=True)
+    module.exit_json(
+        msg=f"Virtual directory {obj} created in bucket {bucket}",
+        url=url,
+        tags=tags,
+        changed=True,
+    )
 
 
 def path_check(path):
-    if os.path.exists(path):
-        return True
-    else:
-        return False
+    return bool(os.path.exists(path))
 
 
 def option_in_extra_args(option):
@@ -598,9 +612,7 @@ def upload_s3file(module, s3, bucket, obj, expiry, metadata, encrypt, headers, s
                 extra['ACL'] = permissions[0]
 
         if 'ContentType' not in extra:
-            content_type = None
-            if src is not None:
-                content_type = mimetypes.guess_type(src)[0]
+            content_type = mimetypes.guess_type(src)[0] if src is not None else None
             if content_type is None:
                 # s3 default content type
                 content_type = 'binary/octet-stream'
@@ -642,24 +654,24 @@ def download_s3file(module, s3, bucket, obj, dest, retries, version=None):
     except is_boto3_error_code(['404', '403']) as e:
         # AccessDenied errors may be triggered if 1) file does not exist or 2) file exists but
         # user does not have the s3:GetObject permission. 404 errors are handled by download_file().
-        module.fail_json_aws(e, msg="Could not find the key %s." % obj)
+        module.fail_json_aws(e, msg=f"Could not find the key {obj}.")
     except is_boto3_error_message('require AWS Signature Version 4'):  # pylint: disable=duplicate-except
         raise Sigv4Required()
     except is_boto3_error_code('InvalidArgument') as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Could not find the key %s." % obj)
+        module.fail_json_aws(e, msg=f"Could not find the key {obj}.")
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Could not find the key %s." % obj)
+        module.fail_json_aws(e, msg=f"Could not find the key {obj}.")
 
     optional_kwargs = {'ExtraArgs': {'VersionId': version}} if version else {}
-    for x in range(0, retries + 1):
+    for x in range(retries + 1):
         try:
             s3.download_file(bucket, obj, dest, **optional_kwargs)
             module.exit_json(msg="GET operation complete", changed=True)
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             # actually fail on last pass through the loop.
             if x >= retries:
-                module.fail_json_aws(e, msg="Failed while downloading %s." % obj)
-            # otherwise, try again, this may be a transient timeout.
+                module.fail_json_aws(e, msg=f"Failed while downloading {obj}.")
+                    # otherwise, try again, this may be a transient timeout.
         except SSLError as e:  # will ClientError catch SSLError?
             # actually fail on last pass through the loop.
             if x >= retries:
@@ -679,9 +691,16 @@ def download_s3str(module, s3, bucket, obj, version=None, validate=True):
     except is_boto3_error_message('require AWS Signature Version 4'):
         raise Sigv4Required()
     except is_boto3_error_code('InvalidArgument') as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while getting contents of object %s as a string." % obj)
+        module.fail_json_aws(
+            e,
+            msg=f"Failed while getting contents of object {obj} as a string.",
+        )
+
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while getting contents of object %s as a string." % obj)
+        module.fail_json_aws(
+            e,
+            msg=f"Failed while getting contents of object {obj} as a string.",
+        )
 
 
 def get_download_url(module, s3, bucket, obj, expiry, tags=None, changed=True):
@@ -713,9 +732,15 @@ def copy_object_to_bucket(module, s3, bucket, obj, encrypt, metadata, validate, 
         version = None
         if module.params['copy_src'].get('version_id') is not None:
             version = module.params['copy_src'].get('version_id')
-            bucketsrc.update({'VersionId': version})
-        keyrtn = key_check(module, s3, bucketsrc['Bucket'], bucketsrc['Key'], version=version, validate=validate)
-        if keyrtn:
+            bucketsrc['VersionId'] = version
+        if keyrtn := key_check(
+            module,
+            s3,
+            bucketsrc['Bucket'],
+            bucketsrc['Key'],
+            version=version,
+            validate=validate,
+        ):
             s_etag = get_etag(s3, bucketsrc['Bucket'], bucketsrc['Key'], version=version)
             if s_etag == d_etag:
                 # Tags
@@ -723,7 +748,7 @@ def copy_object_to_bucket(module, s3, bucket, obj, encrypt, metadata, validate, 
                 if not changed:
                     module.exit_json(msg="ETag from source and destination are the same", changed=False)
             else:
-                params.update({'CopySource': bucketsrc})
+                params['CopySource'] = bucketsrc
                 if encrypt:
                     params['ServerSideEncryption'] = module.params['encryption_mode']
                 if module.params['encryption_kms_key_id'] and module.params['encryption_mode'] == 'aws:kms':
@@ -746,8 +771,16 @@ def copy_object_to_bucket(module, s3, bucket, obj, encrypt, metadata, validate, 
     except is_boto3_error_code(IGNORE_S3_DROP_IN_EXCEPTIONS):
         module.warn("PutObjectAcl is not implemented by your storage provider. Set the permissions parameters to the empty list to avoid this warning")
     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:  # pylint: disable=duplicate-except
-        module.fail_json_aws(e, msg="Failed while copying object %s from bucket %s." % (obj, module.params['copy_src'].get('Bucket')))
-    module.exit_json(msg="Object copied from bucket %s to bucket %s." % (bucketsrc['Bucket'], bucket), tags=tags, changed=True)
+        module.fail_json_aws(
+            e,
+            msg=f"Failed while copying object {obj} from bucket {module.params['copy_src'].get('Bucket')}.",
+        )
+
+    module.exit_json(
+        msg=f"Object copied from bucket {bucketsrc['Bucket']} to bucket {bucket}.",
+        tags=tags,
+        changed=True,
+    )
 
 
 def is_fakes3(s3_url):
@@ -773,9 +806,16 @@ def get_s3_connection(module, aws_connect_kwargs, location, rgw, s3_url, sig_4=F
             protocol = "http"
             if port is None:
                 port = 80
-        params = dict(module=module, conn_type='client', resource='s3', region=location,
-                      endpoint="%s://%s:%s" % (protocol, fakes3.hostname, to_text(port)),
-                      use_ssl=fakes3.scheme == 'fakes3s', **aws_connect_kwargs)
+        params = dict(
+            module=module,
+            conn_type='client',
+            resource='s3',
+            region=location,
+            endpoint=f"{protocol}://{fakes3.hostname}:{to_text(port)}",
+            use_ssl=fakes3.scheme == 'fakes3s',
+            **aws_connect_kwargs,
+        )
+
     else:
         params = dict(module=module, conn_type='client', resource='s3', region=location, endpoint=s3_url, **aws_connect_kwargs)
         if module.params['mode'] == 'put' and module.params['encryption_mode'] == 'aws:kms':
@@ -816,7 +856,7 @@ def delete_object_tagging(s3, bucket, obj):
 
 
 def wait_tags_are_applied(module, s3, bucket, obj, expected_tags_dict, version=None):
-    for dummy in range(0, 12):
+    for _ in range(12):
         try:
             current_tags_dict = get_current_object_tags_dict(s3, bucket, obj, version)
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
@@ -854,12 +894,11 @@ def ensure_tags(client, module, bucket, obj):
                         put_object_tagging(client, bucket, obj, tags)
                     except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
                         module.fail_json_aws(e, msg="Failed to update object tags.")
-                else:
-                    if purge_tags:
-                        try:
-                            delete_object_tagging(client, bucket, obj)
-                        except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
-                            module.fail_json_aws(e, msg="Failed to delete object tags.")
+                elif purge_tags:
+                    try:
+                        delete_object_tagging(client, bucket, obj)
+                    except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError) as e:
+                        module.fail_json_aws(e, msg="Failed to delete object tags.")
                 current_tags_dict = wait_tags_are_applied(module, client, bucket, obj, tags)
                 changed = True
     return current_tags_dict, changed

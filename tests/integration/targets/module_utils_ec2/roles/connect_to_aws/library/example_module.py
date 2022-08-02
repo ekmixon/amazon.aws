@@ -45,10 +45,7 @@ def main():
     except (boto.exception.BotoServerError, AnsibleAWSError) as e:
         module.fail_json_aws(e, msg='Fail JSON AWS')
 
-    images_out = []
-    for image in images:
-        images_out.append(image.id)
-
+    images_out = [image.id for image in images]
     # Return something, just because we can.
     module.exit_json(
         changed=False,

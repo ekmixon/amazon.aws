@@ -12,39 +12,16 @@ example_date = date_parser.parse(example_date_txt)
 
 
 normalize_boto3_result_data = [
-    (dict(),
-     dict()
-     ),
-    # Bool
-    (dict(param1=False),
-     dict(param1=False)
-     ),
-    # Simple string (shouldn't be touched
-    (dict(date_example=example_date_txt),
-     dict(date_example=example_date_txt)
-     ),
-    (dict(date_example=example_date_iso),
-     dict(date_example=example_date_iso)
-     ),
-    # Datetime -> String
-    (dict(date_example=example_date),
-     dict(date_example=example_date_iso)
-     ),
-    (list(),
-     list()
-     ),
-    (list([False]),
-     list([False])
-     ),
-    (list([example_date_txt]),
-     list([example_date_txt])
-     ),
-    (list([example_date_iso]),
-     list([example_date_iso])
-     ),
-    (list([example_date]),
-     list([example_date_iso])
-     ),
+    ({}, {}),
+    (dict(param1=False), dict(param1=False)),
+    (dict(date_example=example_date_txt), dict(date_example=example_date_txt)),
+    (dict(date_example=example_date_iso), dict(date_example=example_date_iso)),
+    (dict(date_example=example_date), dict(date_example=example_date_iso)),
+    ([], []),
+    ([False], [False]),
+    ([example_date_txt], [example_date_txt]),
+    ([example_date_iso], [example_date_iso]),
+    ([example_date], [example_date_iso]),
 ]
 
 

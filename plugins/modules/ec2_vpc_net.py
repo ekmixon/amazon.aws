@@ -284,13 +284,19 @@ def get_vpc(module, connection, vpc_id):
 
 def update_vpc_tags(connection, module, vpc_id, tags, name):
     if tags is None:
-        tags = dict()
+        tags = {}
 
     tags.update({'Name': name})
-    tags = dict((k, to_native(v)) for k, v in tags.items())
+    tags = {k: to_native(v) for k, v in tags.items()}
     try:
         filters = ansible_dict_to_boto3_filter_list({'resource-id': vpc_id})
-        current_tags = dict((t['Key'], t['Value']) for t in connection.describe_tags(Filters=filters, aws_retry=True)['Tags'])
+        current_tags = {
+            t['Key']: t['Value']
+            for t in connection.describe_tags(Filters=filters, aws_retry=True)[
+                'Tags'
+            ]
+        }
+
         tags_to_update, dummy = compare_aws_tags(current_tags, tags, False)
         if tags_to_update:
             if not module.check_mode:
@@ -395,12 +401,13 @@ def main():
         tenancy=dict(choices=['default', 'dedicated'], default='default'),
         dns_support=dict(type='bool', default=True),
         dns_hostnames=dict(type='bool', default=True),
-        dhcp_opts_id=dict(),
+        dhcp_opts_id={},
         tags=dict(type='dict', aliases=['resource_tags']),
         state=dict(choices=['present', 'absent'], default='present'),
         multi_ok=dict(type='bool', default=False),
         purge_cidrs=dict(type='bool', default=False),
     )
+
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,
@@ -442,8 +449,12 @@ def main():
 
         vpc_obj = get_vpc(module, connection, vpc_id)
 
-        associated_cidrs = dict((cidr['CidrBlock'], cidr['AssociationId']) for cidr in vpc_obj.get('CidrBlockAssociationSet', [])
-                                if cidr['CidrBlockState']['State'] != 'disassociated')
+        associated_cidrs = {
+            cidr['CidrBlock']: cidr['AssociationId']
+            for cidr in vpc_obj.get('CidrBlockAssociationSet', [])
+            if cidr['CidrBlockState']['State'] != 'disassociated'
+        }
+
         to_add = [cidr for cidr in cidr_block if cidr not in associated_cidrs]
         to_remove = [associated_cidrs[cidr] for cidr in associated_cidrs if cidr not in cidr_block]
         expected_cidrs = [cidr for cidr in associated_cidrs if associated_cidrs[cidr] not in to_remove] + to_add
